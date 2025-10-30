@@ -1,0 +1,34 @@
+[project]
+name = "pytest-chronicle"
+version = "0.0.1"
+description = "Reusable pytest results ingestion tooling with database export and CLI helpers."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Survi Team" }]
+dependencies = [
+    "sqlalchemy>=2.0",
+    "sqlmodel>=0.0.24",
+    "aiosqlite>=0.20",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
+
+[project.entry-points."pytest11"]
+pytest_chronicle = "pytest_chronicle.pytest_plugin"
+
+[project.scripts]
+pytest-chronicle = "pytest_chronicle.cli.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"pytest_chronicle" = ["alembic/versions/*.py", "alembic/*.ini", "alembic/*.mako", "queries/*.sql"]

@@ -1,0 +1,105 @@
+Metadata-Version: 2.4
+Name: pytest-chronicle
+Version: 0.0.1
+Summary: Reusable pytest results ingestion tooling with database export and CLI helpers.
+Author: Survi Team
+License: MIT
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: sqlmodel>=0.0.24
+Requires-Dist: aiosqlite>=0.20
+Requires-Dist: asyncpg>=0.29
+Requires-Dist: alembic>=1.13
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+Dynamic: license-file
+
+# pytest-chronicle
+
+Reusable tooling for capturing pytest results, ingesting them into a relational database, and querying the latest failures. This package is being extracted from Survi's in-repo helpers so it can stand alone in other projects.
+
+## Features (current snapshot)
+- Pytest plugin (`pytest_chronicle.pytest_plugin`) that streams per-test JSONL records.
+- Async ingestion module that stamps runs with Git/CI metadata and persists them to SQLite or Postgres via SQLModel.
+- Console entry point (`pytest-chronicle`) with subcommands for:
+  - `run`: execute pytest under `uv`, capture JSONL + JUnit artifacts, and optionally ingest the run.
+  - `ingest`: load `summary.json` or JSONL artifacts into the database.
+  - `latest-red`: list the latest failing/erroring tests for a project/suite.
+  - `backfill`: ingest historical `summary.json` files in bulk.
+  - `export-sqlite` / `import-sqlite`: migrate data between database backends.
+  - `db`: drive Alembic migrations (`upgrade`, `downgrade`, `current`, `history`, `stamp`, `revision`).
+- Thin shims in `tools/test_results/` re-export the new package so existing Make targets remain intact during migration.
+
+## Installation (monorepo local path)
+
+```bash
+UV_CACHE=.uv_cache uv pip install -e tools/pytest-chronicle
+```
+
+The package declares `sqlalchemy`, `sqlmodel`, `aiosqlite`, `asyncpg`, and `alembic` as core dependencies, with a `dev` extra providing `pytest` and `ruff`.
+
+## CLI quickstart
+
+```
+$ pytest-chronicle run packages/survi -- suite -k smoke
+$ pytest-chronicle ingest --summary packages/survi/.artifacts/test-results/summary.json
+$ pytest-chronicle latest-red --project-like "packages/survi%"
+$ pytest-chronicle backfill --glob packages/survi/reports/*/summary.json
+$ pytest-chronicle export-sqlite --database-url sqlite+aiosqlite:///test_results.db --out export.sqlite
+$ pytest-chronicle import-sqlite --sqlite export.sqlite --database-url postgresql+asyncpg://user:pass@localhost/db
+$ pytest-chronicle db --database-url sqlite+aiosqlite:///test_results.db upgrade head
+```
+
+All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. SQLite targets default to `<repo>/test_results.db`.
+
+### Monorepo Makefile toggle
+
+Set `PYTEST_RESULTS_DRIVER=cli` to run existing Make targets (e.g., `make ci-matrix`, `make survi-test`) through the Python CLI instead of the legacy shell wrappers while we validate the new tooling.
+
+## Pytest plugin usage
+
+The package exposes a `pytest11` entry point, so simply installing it makes the plugin available to any `pytest` run—no extra flags required. Typical setup:
+
+```ini
+[pytest]
+addopts = --results-jsonl=.artifacts/test-results/results.jsonl
+```
+
+What happens:
+
+- each test run emits per-test JSON lines to the configured path (directories are created automatically)
+- you can point to an HTTP endpoint instead/also via `--results-endpoint=https://...`
+- optional env vars (`PYTEST_RESULTS_PROJECT`, `PYTEST_RESULTS_SUITE`, `PYTEST_RESULTS_DB_URL`) provide defaults when you later ingest the run
+
+To ingest the data after a standard `pytest` invocation, run:
+
+```
+pytest-chronicle ingest --jsonl .artifacts/test-results/results.jsonl \
+  --project my-project --suite pytest-smoke
+```
+
+The CLI will resolve database credentials using `PYTEST_RESULTS_DB_URL` / `TEST_RESULTS_DATABASE_URL` / `SCS_DATABASE_URL`, or fall back to `<repo>/test_results.db` when nothing is set.
+
+## Developing / Testing
+
+```
+PYTHONPATH=$PWD/tools/pytest-chronicle/src \
+  uv run --python 3.12 --with pytest --with sqlmodel --with sqlalchemy \
+    --with aiosqlite --with asyncpg --with alembic \
+    python -m pytest \
+      tests/test_jsonl_ingest_phases.py \
+      tests/test_test_results_queries.py \
+      tools/pytest-chronicle/tests/unit/test_cli_commands.py \
+      tools/pytest-chronicle/tests/integration/test_pytest_plugin_autoload.py -q
+```
+
+The CLI tests verify ingestion flows, database helpers, and Alembic commands without touching GPU-heavy suites.
+
+## Roadmap
+- Harden configuration surface (pyproject/pytest.ini integration, env overrides).
+- Publish Alembic migrations as package data and document upgrade paths for new consumers.
+- Finalize documentation, Makefile integration, and packaging story for adoption outside Survi.
