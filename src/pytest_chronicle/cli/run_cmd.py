@@ -17,7 +17,12 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         "run",
         help="Run pytest for a project, capture results, and optionally ingest them.",
     )
-    parser.add_argument("project", help="Project path relative to repo root (e.g., packages/survi)")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        default=".",
+        help="Project path relative to the repository root (defaults to current directory).",
+    )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER, help="Arguments passed through to pytest (use -- to separate).")
     parser.add_argument("--suite", default=None, help="Suite label to store with the run (defaults to pytest).")
     parser.add_argument("--gpu", default=os.getenv("GPU", "cpu"), help="GPU label stored alongside the run (default from $GPU or cpu).")
@@ -31,21 +36,43 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
 
 
 def _repo_root() -> Path:
-    # ../../../../.. from cli/__file__
-    return Path(__file__).resolve().parents[5]
+    env_override = os.getenv("PYTEST_CHRONICLE_REPO_ROOT")
+    if env_override:
+        return Path(env_override).expanduser().resolve()
+
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        git_root = proc.stdout.strip()
+        if git_root:
+            return Path(git_root).resolve()
+    except Exception:
+        pass
+
+    return Path.cwd().resolve()
 
 
 def _prepare_env(project_dir: Path, root: Path, gpu: str) -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("HOME", str(root / ".home"))
     env.setdefault("UV_CACHE", str(root / ".uv_cache"))
-    env.setdefault("UV_PROJECT_ENVIRONMENT", str(root / ".uv_env" / project_dir.relative_to(root).as_posix().replace("/", "_")))
+    try:
+        relative = project_dir.relative_to(root)
+        identifier = relative.as_posix().replace("/", "_")
+    except ValueError:
+        identifier = project_dir.as_posix().replace("/", "_")
+    env.setdefault("UV_PROJECT_ENVIRONMENT", str(root / ".uv_env" / identifier))
     existing_pythonpath = env.get("PYTHONPATH")
     combined_paths = [str(project_dir), str(root)]
     if existing_pythonpath:
         combined_paths.append(existing_pythonpath)
     env["PYTHONPATH"] = ":".join(combined_paths)
     env["TEST_RESULTS_GPU"] = gpu
+    env.pop("PYTEST_DISABLE_PLUGIN_AUTOLOAD", None)
     return env
 
 
@@ -72,8 +99,6 @@ def _build_uv_command(uv_args: str, pytest_args: Sequence[str], jsonl: Path, jun
     base.extend(
         [
             "pytest",
-            "-p",
-            "tools.test_results.pytest_plugin",
             "--results-jsonl",
             str(jsonl),
             "-o",
@@ -109,6 +134,10 @@ def _compute_code_hash(root: Path, project_rel: str) -> str:
 
 def _run_junit_to_summary(root: Path, junit: Path, summary: Path, status: str, gpu: str, code_hash: str, head_sha: str, report_dir: Path, env: dict[str, str]) -> int:
     script = root / "tools" / "junit_to_summary.py"
+    if not script.exists():
+        # Fallback: allow usage outside repositories that ship the helper.
+        # The ingester can operate directly on JSONL when needed.
+        return 0
     cmd = [
         sys.executable,
         str(script),
@@ -133,11 +162,19 @@ def _run_junit_to_summary(root: Path, junit: Path, summary: Path, status: str, g
 
 def run(args: argparse.Namespace) -> int:
     root = _repo_root()
-    project_rel = args.project
-    project_dir = (root / project_rel).resolve()
+    project_arg = Path(args.project or ".")
+    if project_arg.is_absolute():
+        project_dir = project_arg.resolve()
+    else:
+        project_dir = (root / project_arg).resolve()
     if not project_dir.exists():
         print(f"Project directory not found: {project_dir}", file=sys.stderr)
         return 2
+
+    try:
+        project_rel = project_dir.relative_to(root).as_posix()
+    except ValueError:
+        project_rel = project_dir.as_posix()
 
     jsonl_path, junit_path, summary_path = _ensure_artifacts(project_dir, args.jsonl_path and Path(args.jsonl_path), args.junit_path and Path(args.junit_path), args.summary_path and Path(args.summary_path))
     env = _prepare_env(project_dir, root, args.gpu)

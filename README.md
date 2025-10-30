@@ -25,7 +25,7 @@ The package declares `sqlalchemy`, `sqlmodel`, `aiosqlite`, `asyncpg`, and `alem
 ## CLI quickstart
 
 ```
-$ pytest-chronicle run packages/survi -- suite -k smoke
+$ pytest-chronicle run --suite pytest-smoke packages/survi -- -k smoke
 $ pytest-chronicle ingest --summary packages/survi/.artifacts/test-results/summary.json
 $ pytest-chronicle latest-red --project-like "packages/survi%"
 $ pytest-chronicle backfill --glob packages/survi/reports/*/summary.json
@@ -38,7 +38,7 @@ All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SC
 
 ### Monorepo Makefile toggle
 
-Set `PYTEST_RESULTS_DRIVER=cli` to run existing Make targets (e.g., `make ci-matrix`, `make survi-test`) through the Python CLI instead of the legacy shell wrappers while we validate the new tooling.
+Set `PYTEST_RESULTS_DRIVER=cli` to run existing Make targets (e.g., `make ci-matrix`, `make survi-test`) through the Python CLI instead of the legacy shell wrappers while we validate the new tooling. CLI options (such as `--suite` or `--jsonl-path`) should appear before the project argument; use `--` to separate pytest flags.
 
 ## Pytest plugin usage
 

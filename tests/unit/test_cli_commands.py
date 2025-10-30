@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from pytest_chronicle.cli.__main__ import main as cli_main
+from pytest_chronicle.cli import run_cmd
 
 
 def _write_summary(path: Path, *, status: str = "FAIL") -> Path:
@@ -142,6 +144,61 @@ def test_cli_backfill_export_import(tmp_path: Path, capsys: pytest.CaptureFixtur
     ])
     assert exit_latest == 0
     assert "pkg/mod.py::test_failure" in capsys.readouterr().out
+
+
+def test_cli_run_invokes_pytest_and_ingests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    commands: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):  # type: ignore[override]
+        if isinstance(cmd, list) and cmd[:2] == ["uv", "run"]:
+            commands.append(cmd)
+            return SimpleNamespace(returncode=0)
+        if isinstance(cmd, list) and cmd[:2] == ["git", "-C"]:
+            return SimpleNamespace(returncode=0, stdout="deadbeef\n")
+        if isinstance(cmd, list) and cmd[:2] == ["git", "rev-parse"]:
+            return SimpleNamespace(returncode=0, stdout=str(tmp_path) + "\n")
+        if isinstance(cmd, list) and cmd[:2] == ["git", "ls-tree"]:
+            return SimpleNamespace(returncode=0, stdout="100644 blob abcdef\tproj/test_file.py\n")
+        if isinstance(cmd, list) and cmd and cmd[0] in {"sha256sum", "shasum"}:
+            return SimpleNamespace(returncode=0, stdout="cafebabe  -\n")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    async def fake_ingest_async(**kwargs):  # type: ignore[override]
+        fake_ingest_async.call_args = kwargs
+
+    fake_ingest_async.call_args = {}  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_cmd, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(run_cmd, "subprocess", SimpleNamespace(run=fake_run))
+    monkeypatch.setattr(run_cmd, "ingest_async", fake_ingest_async)
+    monkeypatch.setattr(run_cmd, "default_database_url", lambda: "sqlite+aiosqlite:///tmp/test.db")
+    monkeypatch.setattr(run_cmd, "get_default_config", lambda: SimpleNamespace(suite=None))
+
+    jsonl_path = project_dir / ".artifacts" / "test-results" / "run.jsonl"
+
+    exit_code = cli_main([
+        "run",
+        "--jsonl-path",
+        str(jsonl_path),
+        "proj",
+        "--",
+        "-k",
+        "smoke",
+    ])
+
+    assert exit_code == 0
+    assert commands, "uv run was not invoked"
+    uv_cmd = commands[0]
+    assert uv_cmd[:2] == ["uv", "run"]
+    assert "pytest" in uv_cmd
+    assert "--results-jsonl" in uv_cmd
+    assert "tools.test_results.pytest_plugin" not in uv_cmd
+    assert (project_dir / ".artifacts" / "test-results").exists()
+    assert fake_ingest_async.call_args["project"] == "proj"
+    assert fake_ingest_async.call_args["summary_path"] == jsonl_path
 
 
 def test_cli_db_upgrade_and_revision(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
