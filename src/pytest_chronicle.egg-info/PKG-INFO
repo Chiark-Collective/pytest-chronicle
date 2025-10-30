@@ -3,7 +3,7 @@ Name: pytest-chronicle
 Version: 0.0.1
 Summary: Reusable pytest results ingestion tooling with database export and CLI helpers.
 Author: Survi Team
-License: MIT
+License-Expression: MIT
 Requires-Python: >=3.12
 Description-Content-Type: text/markdown
 License-File: LICENSE

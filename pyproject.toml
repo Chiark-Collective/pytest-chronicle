@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Reusable pytest results ingestion tooling with database export and CLI helpers."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Survi Team" }]
 dependencies = [
     "sqlalchemy>=2.0",
