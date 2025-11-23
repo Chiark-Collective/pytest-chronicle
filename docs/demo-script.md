@@ -66,3 +66,23 @@ Expect: last-red empty for this test, flipped-green shows the new run, timeline 
 - Keep terminal width modest; `--compact` keeps the timeline sparkline tight.
 - Use `clear` between phases to separate scenes.
 - Brief pauses after each command make the GIF easier to follow.
+
+## Verified reproduction (fresh sandbox)
+The flow was validated in a clean repo at `~/projects/chiark/demo-pytest-chronicle`:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ../pytest-chronicle pytest
+
+# create mathops.py and test_mathops.py as above
+pytest-chronicle init --project demo --suite pytest
+pytest -q                                           # captures failing run
+pytest-chronicle query errors --format text
+pytest-chronicle query timeline --runs 5 --max-tests 10 --compact
+
+# fix mathops.py (return 1.0 when x == 0)
+PYTEST_RESULTS_SUITE=after-fix pytest -q            # captures passing run
+pytest-chronicle query timeline --runs 5 --max-tests 10 --compact
+pytest-chronicle query flipped-green --format text
+```
+Observed: timeline shows `P F` progression for the failing test; `flipped-green` reports the passing run; ingestion to `.pytest-chronicle/chronicle.db` happens automatically via the plugin.
