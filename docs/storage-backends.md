@@ -17,6 +17,8 @@ Defined in `pytest_chronicle.backends` as `QueryBackend` + `QueryParams`:
 
 Current resolver (`resolve_backend`) routes every URL to the SQLAlchemy implementation (`SqlQueryBackend`). Additional backends register by extending the resolver (scheme map, entry points, or a small registry).
 
+The CLI resolves the database URL from CLI flags → environment → `.pytest-chronicle.toml` → an async SQLite fallback at `<repo>/.pytest-chronicle/chronicle.db` before constructing a backend. This keeps default, file-based storage working without explicit flags while still allowing alternative backends.
+
 ## Extending beyond SQL
 
 Backends are responsible for implementing the above methods using their native query language:

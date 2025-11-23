@@ -6,6 +6,7 @@ Reusable tooling for capturing pytest results, ingesting them into a relational 
 - Pytest plugin (`pytest_chronicle.pytest_plugin`) that streams per-test JSONL records.
 - Async ingestion module that stamps runs with Git/CI metadata and persists them to SQLite or Postgres via SQLModel.
 - Console entry point (`pytest-chronicle`) with subcommands for:
+  - `init`: create a repo-local `.pytest-chronicle.toml` and an async SQLite database default.
   - `run`: execute pytest under `uv`, capture JSONL + JUnit artifacts, and optionally ingest the run.
   - `ingest`: load `summary.json` or JSONL artifacts into the database.
   - `latest-red`: list the latest failing/erroring tests for a project/suite.
@@ -13,6 +14,7 @@ Reusable tooling for capturing pytest results, ingesting them into a relational 
   - `backfill`: ingest historical `summary.json` files in bulk.
   - `export-sqlite` / `import-sqlite`: migrate data between database backends.
   - `db`: drive Alembic migrations (`upgrade`, `downgrade`, `current`, `history`, `stamp`, `revision`).
+  - `config`: show or set repo defaults without retyping flags.
 - Thin shims in `tools/test_results/` re-export the new package so existing Make targets remain intact during migration.
 
 ## Installation (monorepo local path)
@@ -26,6 +28,7 @@ The package declares `sqlalchemy`, `sqlmodel`, `aiosqlite`, `asyncpg`, and `alem
 ## CLI quickstart
 
 ```
+$ pytest-chronicle init --project my-project --suite pytest
 $ pytest-chronicle run --suite pytest-smoke packages/survi -- -k smoke
 $ pytest-chronicle ingest --summary packages/survi/.artifacts/test-results/summary.json
 $ pytest-chronicle latest-red --project-like "packages/survi%"
@@ -37,7 +40,13 @@ $ pytest-chronicle import-sqlite --sqlite export.sqlite --database-url postgresq
 $ pytest-chronicle db --database-url sqlite+aiosqlite:///test_results.db upgrade head
 ```
 
-All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. SQLite targets default to `<repo>/test_results.db`.
+All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. If a `.pytest-chronicle.toml` exists in the repo (created via `pytest-chronicle init` or `pytest-chronicle config set ...`), its `database_url` / `project` / `suite` values are used. Otherwise, the fallback is an async SQLite database at `<repo>/.pytest-chronicle/chronicle.db`.
+
+### Repository defaults
+
+- `pytest-chronicle init` scaffolds a `.pytest-chronicle.toml` and (by default) creates the SQLite schema at `.pytest-chronicle/chronicle.db`. Pass `--database-url` to point at Postgres or a different SQLite path, and `--no-schema` to skip creation.
+- `pytest-chronicle config show` prints the effective values after env overrides; `pytest-chronicle config set database_url <url>` (or `project` / `suite` / `jsonl_path`) updates the repo file so you do not need to repeat flags.
+- The pytest plugin automatically uses the repo config or environment defaults when `--chronicle-db` is omitted; add `--chronicle-no-ingest` to opt out for a particular run.
 
 ### Querying test history
 
@@ -52,13 +61,13 @@ Shared filters mirror pytest selectors where possible: `-k` keyword expression a
 
 ### Seamless ingestion from pytest
 
-Enable auto-ingestion by passing `--chronicle-db <url>` directly to pytest (plugin shipped via entry point):
+Enable auto-ingestion by passing `--chronicle-db <url>` directly to pytest (plugin shipped via entry point) or by relying on a repo-level `.pytest-chronicle.toml` / env vars:
 
 ```
 pytest --chronicle-db sqlite:///test_results.db -k smoke
 ```
 
-The plugin will write JSONL to `.artifacts/test-results/chronicle-results.jsonl` if not provided and ingest at session end. Optional overrides: `--chronicle-project`, `--chronicle-suite`, `--chronicle-no-ingest` (skip while keeping JSONL export). Both `sqlite:///...` and `sqlite+aiosqlite:///...` are accepted.
+The plugin will write JSONL to `.artifacts/test-results/chronicle-results.jsonl` if not provided and ingest at session end. Optional overrides: `--chronicle-project`, `--chronicle-suite`, `--chronicle-no-ingest` (skip while keeping JSONL export). Both `sqlite:///...` and `sqlite+aiosqlite:///...` are accepted. When `--chronicle-db` is omitted, the plugin looks for `PYTEST_RESULTS_DB_URL` (legacy vars too) and then `.pytest-chronicle.toml`.
 
 ### Monorepo Makefile toggle
 
@@ -77,7 +86,7 @@ What happens:
 
 - each test run emits per-test JSON lines to the configured path (directories are created automatically)
 - you can point to an HTTP endpoint instead/also via `--results-endpoint=https://...`
-- optional env vars (`PYTEST_RESULTS_PROJECT`, `PYTEST_RESULTS_SUITE`, `PYTEST_RESULTS_DB_URL`) provide defaults when you later ingest the run
+- optional env vars (`PYTEST_RESULTS_PROJECT`, `PYTEST_RESULTS_SUITE`, `PYTEST_RESULTS_DB_URL`) or a repo config file provide defaults when you later ingest the run
 
 To ingest the data after a standard `pytest` invocation, run:
 
@@ -86,7 +95,7 @@ pytest-chronicle ingest --jsonl .artifacts/test-results/results.jsonl \
   --project my-project --suite pytest-smoke
 ```
 
-The CLI will resolve database credentials using `PYTEST_RESULTS_DB_URL` / `TEST_RESULTS_DATABASE_URL` / `SCS_DATABASE_URL`, or fall back to `<repo>/test_results.db` when nothing is set.
+The CLI will resolve database credentials using `PYTEST_RESULTS_DB_URL` / `TEST_RESULTS_DATABASE_URL` / `SCS_DATABASE_URL`, or a `.pytest-chronicle.toml` file, and otherwise fall back to `<repo>/.pytest-chronicle/chronicle.db`.
 
 ## Developing / Testing
 

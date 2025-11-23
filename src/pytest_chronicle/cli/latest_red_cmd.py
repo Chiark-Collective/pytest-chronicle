@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from sqlalchemy import create_engine, text  # type: ignore
 
-from pytest_chronicle.config import resolve_database_url
+from pytest_chronicle.config import ensure_sqlite_parent, resolve_database_url
 from pytest_chronicle.ingest import default_database_url
 
 
@@ -91,6 +91,7 @@ def _sync_url(db_url: str) -> str:
 
 def run(args: argparse.Namespace) -> int:
     db_url = args.database_url or resolve_database_url() or default_database_url()
+    ensure_sqlite_parent(db_url)
     engine = create_engine(_sync_url(db_url))
     sql = text(_build_sql(args, engine.url.get_dialect().name))
     if args.print_sql:

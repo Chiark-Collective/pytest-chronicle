@@ -25,10 +25,12 @@ src/pytest_chronicle/backends/sql.py
 src/pytest_chronicle/cli/__init__.py
 src/pytest_chronicle/cli/__main__.py
 src/pytest_chronicle/cli/backfill_cmd.py
+src/pytest_chronicle/cli/config_cmd.py
 src/pytest_chronicle/cli/db_cmd.py
 src/pytest_chronicle/cli/export_sqlite_cmd.py
 src/pytest_chronicle/cli/import_sqlite_cmd.py
 src/pytest_chronicle/cli/ingest_cmd.py
+src/pytest_chronicle/cli/init_cmd.py
 src/pytest_chronicle/cli/latest_red_cmd.py
 src/pytest_chronicle/cli/query_cmd.py
 src/pytest_chronicle/cli/run_cmd.py

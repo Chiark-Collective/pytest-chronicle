@@ -14,7 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pytest_chronicle.config import get_default_config, resolve_database_url
+from pytest_chronicle.config import (
+    default_database_url as config_default_database_url,
+    ensure_sqlite_parent,
+    get_default_config,
+    resolve_database_url,
+)
 
 __all__ = [
     "parse_args",
@@ -44,8 +49,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "SQLAlchemy URL (e.g., postgresql+asyncpg://user:pass@host:5432/db or "
-            "sqlite+aiosqlite:///<repo_root>/test_results.db). Defaults to PYTEST_RESULTS_DB_URL, "
-            "TEST_RESULTS_DATABASE_URL, SCS_DATABASE_URL, or sqlite+aiosqlite:///<repo_root>/test_results.db"
+            "sqlite+aiosqlite:///<repo_root>/.pytest-chronicle/chronicle.db). Defaults to PYTEST_RESULTS_DB_URL, "
+            "TEST_RESULTS_DATABASE_URL, SCS_DATABASE_URL, repo config file, or sqlite+aiosqlite:///<repo_root>/.pytest-chronicle/chronicle.db"
         ),
     )
     parser.add_argument("--project", default=None, help="Logical project name (e.g., packages/survi)")
@@ -128,23 +133,7 @@ async def ensure_schema(engine) -> None:
 
 
 def default_database_url() -> str:
-    env_url = resolve_database_url()
-    if env_url:
-        return env_url
-
-    gh_ws = os.getenv("GITHUB_WORKSPACE")
-    if gh_ws:
-        root = Path(gh_ws)
-    else:
-        try:
-            out = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], stderr=subprocess.DEVNULL)
-            root = Path(out.decode().strip())
-        except Exception:
-            parents = Path(__file__).resolve().parents
-            root = parents[4] if len(parents) >= 5 else Path.cwd()
-
-    db_path = (root / "test_results.db").resolve()
-    return f"sqlite+aiosqlite:///{db_path.as_posix()}"
+    return config_default_database_url()
 
 
 def detect_project(summary_path: Path) -> str:
@@ -307,6 +296,7 @@ async def ingest(
     from sqlalchemy import select  # type: ignore
     from pytest_chronicle.models import TestRun, TestCase  # type: ignore
 
+    ensure_sqlite_parent(database_url)
     engine = create_async_engine(database_url, pool_pre_ping=True)
     Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     await ensure_schema(engine)

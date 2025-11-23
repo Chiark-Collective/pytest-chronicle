@@ -4,10 +4,12 @@ import argparse
 import sys
 from pytest_chronicle.cli import (
     backfill_cmd,
+    config_cmd,
     db_cmd,
     export_sqlite_cmd,
     import_sqlite_cmd,
     ingest_cmd,
+    init_cmd,
     latest_red_cmd,
     query_cmd,
     run_cmd,
@@ -28,6 +30,8 @@ def _build_parser() -> argparse.ArgumentParser:
     import_sqlite_cmd.configure_parser(subparsers)
     db_cmd.configure_parser(subparsers)
     query_cmd.configure_parser(subparsers)
+    config_cmd.configure_parser(subparsers)
+    init_cmd.configure_parser(subparsers)
     return parser
 
 
@@ -54,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
         return db_cmd.run(args)
     if args.command == "query":
         return query_cmd.run(args)
+    if args.command == "config":
+        return config_cmd.run(args)
+    if args.command == "init":
+        return init_cmd.run(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

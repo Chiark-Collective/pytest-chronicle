@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
 
+from pytest_chronicle.config import get_default_config
+
 try:
     import requests  # optional dependency
 except Exception:  # pragma: no cover - optional dependency
@@ -81,6 +83,7 @@ def pytest_addoption(parser) -> None:
 def pytest_configure(config) -> None:
     global _CONFIG
     _CONFIG = config
+    defaults = get_default_config()
     config._results_buffer = {}
     config._results_started_at = datetime.now(timezone.utc).isoformat()
     try:
@@ -88,7 +91,9 @@ def pytest_configure(config) -> None:
     except Exception:
         jsonl = None
 
-    chronicle_db = getattr(config.option, "chronicle_db", None)
+    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url
+    chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
+    chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     if chronicle_db and not jsonl:
         default_jsonl = Path.cwd() / ".artifacts" / "test-results" / "chronicle-results.jsonl"
         default_jsonl.parent.mkdir(parents=True, exist_ok=True)
@@ -177,9 +182,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
     tests = list(config._results_buffer.values())
     jsonl = config.getoption("--results-jsonl")
     endpoint = config.getoption("--results-endpoint")
-    chronicle_db = getattr(config.option, "chronicle_db", None)
-    chronicle_project = getattr(config.option, "chronicle_project", None)
-    chronicle_suite = getattr(config.option, "chronicle_suite", None)
+    defaults = get_default_config()
+    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url
+    chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
+    chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     chronicle_no = getattr(config.option, "chronicle_no_ingest", False)
 
     if jsonl:

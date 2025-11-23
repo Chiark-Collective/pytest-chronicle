@@ -7,7 +7,7 @@ from typing import Optional
 from alembic import command  # type: ignore
 from alembic.config import Config  # type: ignore
 
-from pytest_chronicle.config import resolve_database_url
+from pytest_chronicle.config import ensure_sqlite_parent, resolve_database_url
 from pytest_chronicle.ingest import default_database_url
 
 
@@ -29,6 +29,7 @@ def _to_sync_url(url: str) -> str:
 
 def _resolve_database_url(explicit: Optional[str]) -> str:
     candidate = explicit or resolve_database_url() or default_database_url()
+    ensure_sqlite_parent(candidate)
     return _to_sync_url(candidate)
 
 
