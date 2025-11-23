@@ -1,6 +1,6 @@
 # pytest-chronicle
 
-Traceable pytest history: capture results, ingest them into a SQL store (SQLite or Postgres), and answer questions like “when did this test last go red?” or “which commit flipped it green?”.
+Traceable pytest history: capture results, ingest into SQLite or Postgres, and answer “when did this test last go red?” or “which commit flipped it green?”.
 
 ## What it does
 - Pytest plugin emits per-test JSONL records (stdout/stderr/traceback included).
@@ -17,7 +17,7 @@ uv pip install pytest-chronicle
 
 ```bash
 pytest-chronicle init --project my-project --suite pytest          # create config + local sqlite
-pytest --chronicle-db sqlite:///./.pytest-chronicle/chronicle.db   # run tests and auto-ingest
+pytest -q                                                           # auto-ingests using config/env/fallback SQLite
 pytest-chronicle query last-red --format json --pretty             # ask questions
 ```
 
