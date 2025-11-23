@@ -42,11 +42,18 @@ $ pytest-chronicle db --database-url sqlite+aiosqlite:///test_results.db upgrade
 
 All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. If a `.pytest-chronicle.toml` exists in the repo (created via `pytest-chronicle init` or `pytest-chronicle config set ...`), its `database_url` / `project` / `suite` values are used. Otherwise, the fallback is an async SQLite database at `<repo>/.pytest-chronicle/chronicle.db`.
 
-### Repository defaults
+### Repository defaults & precedence
 
-- `pytest-chronicle init` scaffolds a `.pytest-chronicle.toml` and (by default) creates the SQLite schema at `.pytest-chronicle/chronicle.db`. Pass `--database-url` to point at Postgres or a different SQLite path, and `--no-schema` to skip creation.
-- `pytest-chronicle config show` prints the effective values after env overrides; `pytest-chronicle config set database_url <url>` (or `project` / `suite` / `jsonl_path`) updates the repo file so you do not need to repeat flags.
-- The pytest plugin automatically uses the repo config or environment defaults when `--chronicle-db` is omitted; add `--chronicle-no-ingest` to opt out for a particular run.
+- **Precedence:** CLI flag `--database-url` > env vars (`PYTEST_RESULTS_DB_URL`, legacy `TEST_RESULTS_DATABASE_URL`/`SCS_DATABASE_URL`) > repo file `.pytest-chronicle.toml` > fallback SQLite at `<repo>/.pytest-chronicle/chronicle.db` (async).
+- **Config file:** created via `pytest-chronicle init` or `pytest-chronicle config set ...`.
+  ```toml
+  [chronicle]
+  database_url = "postgresql+asyncpg://user:pass@host:5432/dbname"
+  project = "my-project"
+  suite = "pytest"
+  ```
+- **Local vs prod:** keep SQLite in the repo file for local dev; point the file or env var at Postgres for CI/prod. No other changes needed.
+- The pytest plugin also uses this resolution order when `--chronicle-db` is omitted; add `--chronicle-no-ingest` to skip per run.
 
 ### Querying test history
 
