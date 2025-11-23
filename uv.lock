@@ -330,7 +330,7 @@ wheels = [
 
 [[package]]
 name = "pytest-chronicle"
-version = "0.0.1"
+version = "0.0.3"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
