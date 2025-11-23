@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
@@ -22,6 +23,39 @@ __all__ = [
 _CONFIG: Any | None = None
 
 
+def _to_async_url(db_url: str) -> str:
+    if db_url.startswith("postgresql://"):
+        return db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if db_url.startswith("sqlite:///") and "+aiosqlite" not in db_url:
+        return db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+    return db_url
+
+
+def _ingest_from_jsonl(terminalreporter, *, jsonl_path: Path, database_url: str, project: str | None, suite: str | None) -> None:
+    try:
+        from pytest_chronicle.ingest import ingest as ingest_async
+    except Exception as exc:  # pragma: no cover - import guard
+        terminalreporter.write_line(f"[chronicle] ingest import failed: {exc}", red=True)
+        return
+
+    db_url = _to_async_url(database_url)
+    try:
+        asyncio.run(
+            ingest_async(
+                summary_path=jsonl_path,
+                database_url=db_url,
+                project=project,
+                suite=suite,
+                run_id=None,
+                run_key=None,
+                print_id=False,
+            )
+        )
+        terminalreporter.write_line(f"[chronicle] ingested run into {database_url}")
+    except Exception as exc:  # pragma: no cover - best effort
+        terminalreporter.write_line(f"[chronicle] ingest failed: {exc}", red=True)
+
+
 def pytest_addoption(parser) -> None:
     group = parser.getgroup("results-export")
     group.addoption(
@@ -37,6 +71,12 @@ def pytest_addoption(parser) -> None:
         help="Write per-test JSON lines to this file (appended).",
     )
 
+    chronicle = parser.getgroup("chronicle")
+    chronicle.addoption("--chronicle-db", action="store", default=None, help="Database URL to auto-ingest results at session end.")
+    chronicle.addoption("--chronicle-project", action="store", default=None, help="Override project name for ingestion.")
+    chronicle.addoption("--chronicle-suite", action="store", default=None, help="Override suite name for ingestion.")
+    chronicle.addoption("--chronicle-no-ingest", action="store_true", help="Disable auto-ingestion even if --chronicle-db is set.")
+
 
 def pytest_configure(config) -> None:
     global _CONFIG
@@ -47,6 +87,14 @@ def pytest_configure(config) -> None:
         jsonl = config.getoption("--results-jsonl")
     except Exception:
         jsonl = None
+
+    chronicle_db = getattr(config.option, "chronicle_db", None)
+    if chronicle_db and not jsonl:
+        default_jsonl = Path.cwd() / ".artifacts" / "test-results" / "chronicle-results.jsonl"
+        default_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        setattr(config.option, "results_jsonl", str(default_jsonl))
+        jsonl = str(default_jsonl)
+
     if jsonl:
         try:
             with open(jsonl, "w", encoding="utf-8"):
@@ -129,6 +177,10 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
     tests = list(config._results_buffer.values())
     jsonl = config.getoption("--results-jsonl")
     endpoint = config.getoption("--results-endpoint")
+    chronicle_db = getattr(config.option, "chronicle_db", None)
+    chronicle_project = getattr(config.option, "chronicle_project", None)
+    chronicle_suite = getattr(config.option, "chronicle_suite", None)
+    chronicle_no = getattr(config.option, "chronicle_no_ingest", False)
 
     if jsonl:
         jsonl_path = Path(jsonl)
@@ -148,3 +200,12 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
             terminalreporter.write_line(f"[results-export] POSTed {len(tests)} tests to {endpoint}")
         except Exception as exc:  # pragma: no cover - best effort
             terminalreporter.write_line(f"[results-export] POST failed: {exc}", red=True)
+
+    if chronicle_db and not chronicle_no and jsonl:
+        _ingest_from_jsonl(
+            terminalreporter,
+            jsonl_path=Path(jsonl),
+            database_url=chronicle_db,
+            project=chronicle_project,
+            suite=chronicle_suite,
+        )

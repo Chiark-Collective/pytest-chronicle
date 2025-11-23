@@ -50,6 +50,16 @@ All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SC
 
 Shared filters mirror pytest selectors where possible: `-k` keyword expression against `nodeid` / classname / test name, `-m` against run-level marks, plus `--project-like`, `--suite`, `--branch`, and `--commit` filters. Output defaults to text; use `--format json --pretty` and `--output <file>` for machine-readable reports. `query errors` truncates message/detail to 400 characters by default and omits stdout/stderr unless `--include-stdout/--include-stderr` is provided.
 
+### Seamless ingestion from pytest
+
+Enable auto-ingestion by passing `--chronicle-db <url>` directly to pytest (plugin shipped via entry point):
+
+```
+pytest --chronicle-db sqlite:///test_results.db -k smoke
+```
+
+The plugin will write JSONL to `.artifacts/test-results/chronicle-results.jsonl` if not provided and ingest at session end. Optional overrides: `--chronicle-project`, `--chronicle-suite`, `--chronicle-no-ingest` (skip while keeping JSONL export). Both `sqlite:///...` and `sqlite+aiosqlite:///...` are accepted.
+
 ### Monorepo Makefile toggle
 
 Set `PYTEST_RESULTS_DRIVER=cli` to run existing Make targets (e.g., `make ci-matrix`, `make survi-test`) through the Python CLI instead of the legacy shell wrappers while we validate the new tooling. CLI options (such as `--suite` or `--jsonl-path`) should appear before the project argument; use `--` to separate pytest flags.
