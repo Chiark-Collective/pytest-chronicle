@@ -7,6 +7,10 @@
 - Default fallback database now lives at `<repo>/.pytest-chronicle/chronicle.db` (async SQLite), and schema creation ensures directories exist.
 - Pytest plugin now auto-ingests using repo/env defaults when `--chronicle-db` is omitted; improved coverage for config-driven ingestion.
 
+## 0.2.1 - 2025-11-23
+- Plugin defaults to ingesting when any configured/fallback DB is present (no flag needed).
+- README streamlined for first-time users; added detailed `docs/guide.md`.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.
