@@ -11,6 +11,10 @@
 - Plugin defaults to ingesting when any configured/fallback DB is present (no flag needed).
 - README streamlined for first-time users; added detailed `docs/guide.md`.
 
+## 0.2.2 - 2025-11-23
+- Added `pytest-chronicle query timeline` for colored TTY run-by-run status matrices.
+- Docs updated with timeline usage; tests cover JSON output and status rendering.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.
