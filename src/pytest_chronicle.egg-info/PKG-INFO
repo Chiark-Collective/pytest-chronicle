@@ -20,120 +20,53 @@ Dynamic: license-file
 
 # pytest-chronicle
 
-Reusable tooling for capturing pytest results, ingesting them into a relational database, and querying the latest failures. This package is being extracted from Survi's in-repo helpers so it can stand alone in other projects.
+Traceable pytest history: capture results, ingest them into a SQL store (SQLite or Postgres), and answer questions like “when did this test last go red?” or “which commit flipped it green?”.
 
-## Features (current snapshot)
-- Pytest plugin (`pytest_chronicle.pytest_plugin`) that streams per-test JSONL records.
-- Async ingestion module that stamps runs with Git/CI metadata and persists them to SQLite or Postgres via SQLModel.
-- Console entry point (`pytest-chronicle`) with subcommands for:
-  - `init`: create a repo-local `.pytest-chronicle.toml` and an async SQLite database default.
-  - `run`: execute pytest under `uv`, capture JSONL + JUnit artifacts, and optionally ingest the run.
-  - `ingest`: load `summary.json` or JSONL artifacts into the database.
-  - `latest-red`: list the latest failing/erroring tests for a project/suite.
-  - `query`: rich history lookups (latest red commit, failure details, flip-to-green commit, branch/commit comparisons) with pytest-like selectors and JSON output.
-  - `backfill`: ingest historical `summary.json` files in bulk.
-  - `export-sqlite` / `import-sqlite`: migrate data between database backends.
-  - `db`: drive Alembic migrations (`upgrade`, `downgrade`, `current`, `history`, `stamp`, `revision`).
-  - `config`: show or set repo defaults without retyping flags.
-- Thin shims in `tools/test_results/` re-export the new package so existing Make targets remain intact during migration.
+## What it does
+- Pytest plugin emits per-test JSONL records (stdout/stderr/traceback included).
+- Ingestion stamps runs with git/CI metadata and writes to SQLite or Postgres.
+- CLI queries last failures, error details, flip-to-green commits, and branch/commit diffs with pytest-like selectors.
 
-## Installation (monorepo local path)
+## Install
 
 ```bash
-UV_CACHE=.uv_cache uv pip install -e tools/pytest-chronicle
+uv pip install pytest-chronicle
 ```
 
-The package declares `sqlalchemy`, `sqlmodel`, `aiosqlite`, `asyncpg`, and `alembic` as core dependencies, with a `dev` extra providing `pytest` and `ruff`.
+## Quickstart
 
-## CLI quickstart
-
-```
-$ pytest-chronicle init --project my-project --suite pytest
-$ pytest-chronicle run --suite pytest-smoke packages/survi -- -k smoke
-$ pytest-chronicle ingest --summary packages/survi/.artifacts/test-results/summary.json
-$ pytest-chronicle latest-red --project-like "packages/survi%"
-$ pytest-chronicle query last-red --project-like "packages/survi%" -k "smoke and not slow" --format json
-$ pytest-chronicle query compare --branch main --branch feature/login -k login --format json --pretty
-$ pytest-chronicle backfill --glob packages/survi/reports/*/summary.json
-$ pytest-chronicle export-sqlite --database-url sqlite+aiosqlite:///test_results.db --out export.sqlite
-$ pytest-chronicle import-sqlite --sqlite export.sqlite --database-url postgresql+asyncpg://user:pass@localhost/db
-$ pytest-chronicle db --database-url sqlite+aiosqlite:///test_results.db upgrade head
+```bash
+pytest-chronicle init --project my-project --suite pytest          # create config + local sqlite
+pytest --chronicle-db sqlite:///./.pytest-chronicle/chronicle.db   # run tests and auto-ingest
+pytest-chronicle query last-red --format json --pretty             # ask questions
 ```
 
-All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. If a `.pytest-chronicle.toml` exists in the repo (created via `pytest-chronicle init` or `pytest-chronicle config set ...`), its `database_url` / `project` / `suite` values are used. Otherwise, the fallback is an async SQLite database at `<repo>/.pytest-chronicle/chronicle.db`.
+## Common commands
+- `pytest-chronicle init` – scaffold `.pytest-chronicle.toml` and an async SQLite DB.
+- `pytest-chronicle ingest --jsonl <path>` – ingest JSONL/summary artifacts.
+- `pytest-chronicle query last-red|errors|flipped-green|compare` – history lookups (`-k`/`-m` like pytest).
+- `pytest-chronicle run <project> -- <pytest args>` – run pytest under `uv`, collect artifacts, optionally ingest.
+- `pytest-chronicle backfill` – ingest many summary.json files.
+- `pytest-chronicle export-sqlite` / `import-sqlite` – migrate between backends.
+- `pytest-chronicle db upgrade` – apply Alembic migrations.
+- `pytest-chronicle config show|set` – view or set repo defaults.
 
-### Repository defaults
+## Configuration & defaults
+- Precedence: CLI flag `--database-url` > env (`PYTEST_RESULTS_DB_URL`, legacy `TEST_RESULTS_DATABASE_URL` / `SCS_DATABASE_URL`) > `.pytest-chronicle.toml` > fallback SQLite at `<repo>/.pytest-chronicle/chronicle.db` (async).
+- Example config:
+  ```toml
+  [chronicle]
+  database_url = "postgresql+asyncpg://user:pass@host/db"
+  project = "my-project"
+  suite = "pytest"
+  ```
+- Typical flow: use SQLite for local dev (via `init`); point env or config at Postgres for CI/prod. No other changes needed.
 
-- `pytest-chronicle init` scaffolds a `.pytest-chronicle.toml` and (by default) creates the SQLite schema at `.pytest-chronicle/chronicle.db`. Pass `--database-url` to point at Postgres or a different SQLite path, and `--no-schema` to skip creation.
-- `pytest-chronicle config show` prints the effective values after env overrides; `pytest-chronicle config set database_url <url>` (or `project` / `suite` / `jsonl_path`) updates the repo file so you do not need to repeat flags.
-- The pytest plugin automatically uses the repo config or environment defaults when `--chronicle-db` is omitted; add `--chronicle-no-ingest` to opt out for a particular run.
+## Pytest plugin (auto ingestion)
+- Install the package; the `pytest_chronicle` plugin is auto-discovered.
+- Add `--chronicle-db <url>` (or rely on env/config precedence) to ingest at session end. Disable with `--chronicle-no-ingest`.
+- Default JSONL path: `.artifacts/test-results/chronicle-results.jsonl` (created automatically).
 
-### Querying test history
-
-`pytest-chronicle query` wraps the raw SQL needed for common investigations:
-
-- `last-red`: per-test latest failing/erroring occurrence with commit hash and branch.
-- `errors`: same as `last-red` but returns error message/detail/stdout/stderr snapshots.
-- `flipped-green`: the commit where a previously failing test most recently turned passing.
-- `compare`: latest status per test across branches or explicit commits; add `--only-diff` to surface regressions only.
-
-Shared filters mirror pytest selectors where possible: `-k` keyword expression against `nodeid` / classname / test name, `-m` against run-level marks, plus `--project-like`, `--suite`, `--branch`, and `--commit` filters. Output defaults to text; use `--format json --pretty` and `--output <file>` for machine-readable reports. `query errors` truncates message/detail to 400 characters by default and omits stdout/stderr unless `--include-stdout/--include-stderr` is provided.
-
-### Seamless ingestion from pytest
-
-Enable auto-ingestion by passing `--chronicle-db <url>` directly to pytest (plugin shipped via entry point) or by relying on a repo-level `.pytest-chronicle.toml` / env vars:
-
-```
-pytest --chronicle-db sqlite:///test_results.db -k smoke
-```
-
-The plugin will write JSONL to `.artifacts/test-results/chronicle-results.jsonl` if not provided and ingest at session end. Optional overrides: `--chronicle-project`, `--chronicle-suite`, `--chronicle-no-ingest` (skip while keeping JSONL export). Both `sqlite:///...` and `sqlite+aiosqlite:///...` are accepted. When `--chronicle-db` is omitted, the plugin looks for `PYTEST_RESULTS_DB_URL` (legacy vars too) and then `.pytest-chronicle.toml`.
-
-### Monorepo Makefile toggle
-
-Set `PYTEST_RESULTS_DRIVER=cli` to run existing Make targets (e.g., `make ci-matrix`, `make survi-test`) through the Python CLI instead of the legacy shell wrappers while we validate the new tooling. CLI options (such as `--suite` or `--jsonl-path`) should appear before the project argument; use `--` to separate pytest flags.
-
-## Pytest plugin usage
-
-The package exposes a `pytest11` entry point, so simply installing it makes the plugin available to any `pytest` run—no extra flags required. Typical setup:
-
-```ini
-[pytest]
-addopts = --results-jsonl=.artifacts/test-results/results.jsonl
-```
-
-What happens:
-
-- each test run emits per-test JSON lines to the configured path (directories are created automatically)
-- you can point to an HTTP endpoint instead/also via `--results-endpoint=https://...`
-- optional env vars (`PYTEST_RESULTS_PROJECT`, `PYTEST_RESULTS_SUITE`, `PYTEST_RESULTS_DB_URL`) or a repo config file provide defaults when you later ingest the run
-
-To ingest the data after a standard `pytest` invocation, run:
-
-```
-pytest-chronicle ingest --jsonl .artifacts/test-results/results.jsonl \
-  --project my-project --suite pytest-smoke
-```
-
-The CLI will resolve database credentials using `PYTEST_RESULTS_DB_URL` / `TEST_RESULTS_DATABASE_URL` / `SCS_DATABASE_URL`, or a `.pytest-chronicle.toml` file, and otherwise fall back to `<repo>/.pytest-chronicle/chronicle.db`.
-
-## Developing / Testing
-
-```
-PYTHONPATH=$PWD/tools/pytest-chronicle/src \
-  uv run --python 3.12 --with pytest --with sqlmodel --with sqlalchemy \
-    --with aiosqlite --with asyncpg --with alembic \
-    python -m pytest \
-      tests/test_jsonl_ingest_phases.py \
-      tests/test_test_results_queries.py \
-      tools/pytest-chronicle/tests/unit/test_cli_commands.py \
-      tools/pytest-chronicle/tests/integration/test_pytest_plugin_autoload.py -q
-```
-
-The CLI tests verify ingestion flows, database helpers, and Alembic commands without touching GPU-heavy suites.
-
-## Roadmap
-- Harden configuration surface (pyproject/pytest.ini integration, env overrides).
-- Publish Alembic migrations as package data and document upgrade paths for new consumers.
-- Finalize documentation, Makefile integration, and packaging story for adoption outside Survi.
-- Formalize pluggable storage/query backends (see `docs/storage-backends.md`).
+## More docs
+- Detailed guide: `docs/guide.md`
+- Backend abstraction: `docs/storage-backends.md`
