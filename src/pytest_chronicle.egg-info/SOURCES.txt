@@ -19,6 +19,9 @@ src/pytest_chronicle/alembic/env.py
 src/pytest_chronicle/alembic/script.py.mako
 src/pytest_chronicle/alembic/versions/20250917_0001_init.py
 src/pytest_chronicle/alembic/versions/20250917_0002_indexes_and_jsonb.py
+src/pytest_chronicle/backends/__init__.py
+src/pytest_chronicle/backends/base.py
+src/pytest_chronicle/backends/sql.py
 src/pytest_chronicle/cli/__init__.py
 src/pytest_chronicle/cli/__main__.py
 src/pytest_chronicle/cli/backfill_cmd.py
@@ -27,4 +30,5 @@ src/pytest_chronicle/cli/export_sqlite_cmd.py
 src/pytest_chronicle/cli/import_sqlite_cmd.py
 src/pytest_chronicle/cli/ingest_cmd.py
 src/pytest_chronicle/cli/latest_red_cmd.py
+src/pytest_chronicle/cli/query_cmd.py
 src/pytest_chronicle/cli/run_cmd.py
