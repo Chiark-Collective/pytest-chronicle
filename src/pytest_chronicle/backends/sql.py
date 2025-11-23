@@ -1,0 +1,349 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Iterable
+
+from sqlalchemy import create_engine, text  # type: ignore
+
+from pytest_chronicle.backends.base import QueryBackend, QueryParams
+
+
+def _sync_url(db_url: str) -> str:
+    if db_url.startswith("sqlite+aiosqlite://"):
+        return db_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+    if db_url.startswith("postgresql+asyncpg://"):
+        return db_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    return db_url
+
+
+class _ExprNode:
+    def eval(self, haystacks: Iterable[str]) -> bool:  # pragma: no cover
+        raise NotImplementedError
+
+
+class _Term(_ExprNode):
+    def __init__(self, term: str) -> None:
+        if (term.startswith("\"") and term.endswith("\"")) or (term.startswith("'") and term.endswith("'")):
+            term = term[1:-1]
+        self.term = term
+
+    def eval(self, haystacks: Iterable[str]) -> bool:
+        return any(self.term in h for h in haystacks if h)
+
+
+class _Not(_ExprNode):
+    def __init__(self, node: _ExprNode) -> None:
+        self.node = node
+
+    def eval(self, haystacks: Iterable[str]) -> bool:
+        return not self.node.eval(haystacks)
+
+
+class _And(_ExprNode):
+    def __init__(self, left: _ExprNode, right: _ExprNode) -> None:
+        self.left = left
+        self.right = right
+
+    def eval(self, haystacks: Iterable[str]) -> bool:
+        return self.left.eval(haystacks) and self.right.eval(haystacks)
+
+
+class _Or(_ExprNode):
+    def __init__(self, left: _ExprNode, right: _ExprNode) -> None:
+        self.left = left
+        self.right = right
+
+    def eval(self, haystacks: Iterable[str]) -> bool:
+        return self.left.eval(haystacks) or self.right.eval(haystacks)
+
+
+def _tokenize(expr: str) -> list[str]:
+    pattern = r"\(|\)|\band\b|\bor\b|\bnot\b|[^()\s]+"
+    return [tok for tok in re.findall(pattern, expr, flags=re.IGNORECASE) if tok.strip()]
+
+
+def _parse_expr(tokens: list[str]) -> _ExprNode:
+    pos = 0
+
+    def peek() -> str | None:
+        return tokens[pos] if pos < len(tokens) else None
+
+    def consume() -> str:
+        nonlocal pos
+        tok = tokens[pos]
+        pos += 1
+        return tok
+
+    def parse_factor() -> _ExprNode:
+        tok = peek()
+        if tok is None:
+            return _Term("")
+        if tok.lower() == "not":
+            consume()
+            return _Not(parse_factor())
+        if tok == "(":
+            consume()
+            node = parse_or()
+            if peek() == ")":
+                consume()
+            return node
+        return _Term(consume())
+
+    def parse_and() -> _ExprNode:
+        node = parse_factor()
+        while True:
+            tok = peek()
+            if tok is None or tok.lower() != "and":
+                break
+            consume()
+            node = _And(node, parse_factor())
+        return node
+
+    def parse_or() -> _ExprNode:
+        node = parse_and()
+        while True:
+            tok = peek()
+            if tok is None or tok.lower() != "or":
+                break
+            consume()
+            node = _Or(node, parse_and())
+        return node
+
+    return parse_or()
+
+
+def _matches_keyword(expr: str | None, haystacks: Iterable[str]) -> bool:
+    if not expr:
+        return True
+    tokens = _tokenize(expr)
+    if not tokens:
+        return True
+    tree = _parse_expr(tokens)
+    return tree.eval(haystacks)
+
+
+def _in_clause(column: str, prefix: str, values: list[str]) -> tuple[str, dict[str, Any]]:
+    params: dict[str, Any] = {}
+    if not values:
+        return "1 = 1", params
+    placeholders: list[str] = []
+    for idx, value in enumerate(values):
+        key = f"{prefix}_{idx}"
+        placeholders.append(f":{key}")
+        params[key] = value
+    return f"{column} IN ({', '.join(placeholders)})", params
+
+
+def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
+    clauses = ["tr.project LIKE :project_like"]
+    params: dict[str, Any] = {"project_like": common.project_like}
+    if common.suite:
+        clauses.append("tr.suite = :suite")
+        params["suite"] = common.suite
+    if common.branches:
+        clause, extras = _in_clause("tr.branch", "branch", common.branches)
+        clauses.append(clause)
+        params.update(extras)
+    if common.commits:
+        clause, extras = _in_clause("tr.head_sha", "commit", common.commits)
+        clauses.append(clause)
+        params.update(extras)
+    return " AND ".join(clauses), params
+
+
+def _filter_and_trim(rows: list[dict[str, Any]], common: QueryParams, apply_limit: bool = True) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        nodeid = row.get("nodeid", "")
+        if not _matches_keyword(common.keyword, [nodeid, row.get("classname", ""), row.get("name", "")]):
+            continue
+        if common.marks and not _matches_keyword(common.marks, [row.get("marks", "")]):
+            continue
+        filtered.append(dict(row))
+
+    def _sort_key(row: dict[str, Any]) -> tuple[datetime, str]:
+        ts = row.get("created_at")
+        if isinstance(ts, datetime):
+            dt = ts
+        else:
+            try:
+                dt = datetime.fromisoformat(str(ts))
+            except Exception:
+                dt = datetime.min
+        return (dt, row.get("nodeid", ""))
+
+    filtered.sort(key=_sort_key, reverse=True)
+    if apply_limit and common.limit:
+        filtered = filtered[: common.limit]
+    return filtered
+
+
+class SqlQueryBackend(QueryBackend):
+    def __init__(self, db_url: str) -> None:
+        self._engine = create_engine(_sync_url(db_url))
+
+    def close(self) -> None:
+        self._engine.dispose()
+
+    def last_red(self, common: QueryParams) -> list[dict[str, Any]]:
+        where_sql, params = _build_where(common)
+        sql = f"""
+        WITH filtered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tc.message,
+                tc.detail,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+              AND tc.status IN ('failed','error')
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
+            FROM filtered
+        )
+        SELECT * FROM ranked WHERE rn = 1 ORDER BY created_at DESC;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        return _filter_and_trim(rows, common)
+
+    def errors(self, common: QueryParams) -> list[dict[str, Any]]:
+        where_sql, params = _build_where(common)
+        sql = f"""
+        WITH filtered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tc.message,
+                tc.detail,
+                tc.stdout_text,
+                tc.stderr_text,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+              AND tc.status IN ('failed','error')
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
+            FROM filtered
+        )
+        SELECT * FROM ranked WHERE rn = 1 ORDER BY created_at DESC;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        return _filter_and_trim(rows, common)
+
+    def flipped_green(self, common: QueryParams) -> list[dict[str, Any]]:
+        where_sql, params = _build_where(common)
+        sql = f"""
+        WITH ordered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks,
+                LAG(tc.status) OVER (PARTITION BY tc.nodeid ORDER BY tr.created_at) AS prev_status,
+                LAG(tr.head_sha) OVER (PARTITION BY tc.nodeid ORDER BY tr.created_at) AS prev_head_sha,
+                LAG(tr.created_at) OVER (PARTITION BY tc.nodeid ORDER BY tr.created_at) AS prev_created_at
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+        ),
+        flips AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
+            FROM ordered
+            WHERE status = 'passed' AND prev_status IN ('failed','error')
+        )
+        SELECT * FROM flips WHERE rn = 1 ORDER BY created_at DESC;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        return _filter_and_trim(rows, common)
+
+    def _fetch_latest_for_source(self, common: QueryParams, label: str, extra_clause: str, extra_params: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        where_sql, params = _build_where(common)
+        where_sql = f"{where_sql} AND {extra_clause}" if extra_clause else where_sql
+        params = {**params, **extra_params}
+        sql = f"""
+        WITH ranked AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks,
+                ROW_NUMBER() OVER (PARTITION BY tc.nodeid ORDER BY tr.created_at DESC) AS rn
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+        )
+        SELECT * FROM ranked WHERE rn = 1;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        filtered = _filter_and_trim(rows, common, apply_limit=False)
+        result: dict[str, dict[str, Any]] = {}
+        for row in filtered:
+            row = dict(row)
+            row["source"] = label
+            result[row["nodeid"]] = row
+        return result
+
+    def compare(self, common: QueryParams, branches: list[str], commits: list[str]) -> list[dict[str, Any]]:
+        sources: list[tuple[str, str, dict[str, Any]]] = []
+        for idx, branch in enumerate(branches):
+            clause, params = _in_clause("tr.branch", f"cmp_branch_{idx}", [branch])
+            sources.append((f"branch:{branch}", clause, params))
+        for idx, commit in enumerate(commits):
+            clause, params = _in_clause("tr.head_sha", f"cmp_commit_{idx}", [commit])
+            sources.append((f"commit:{commit}", clause, params))
+
+        results: dict[str, dict[str, Any]] = {}
+        for label, clause, extra_params in sources:
+            per_source = self._fetch_latest_for_source(common, label, clause, extra_params)
+            for nodeid, row in per_source.items():
+                bucket = results.setdefault(nodeid, {"nodeid": nodeid, "sources": []})
+                bucket["sources"].append(row)
+
+        filtered: list[dict[str, Any]] = []
+        for nodeid, entry in results.items():
+            if not entry.get("sources"):
+                continue
+            sample = entry["sources"][0]
+            if not _matches_keyword(common.keyword, [nodeid, sample.get("classname", ""), sample.get("name", "")]):
+                continue
+            if common.marks and not _matches_keyword(common.marks, [sample.get("marks", "")]):
+                continue
+            filtered.append(entry)
+
+        filtered.sort(key=lambda item: item["nodeid"])
+        if common.limit:
+            filtered = filtered[: common.limit]
+        return filtered

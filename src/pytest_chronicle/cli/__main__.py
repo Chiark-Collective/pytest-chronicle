@@ -9,6 +9,7 @@ from pytest_chronicle.cli import (
     import_sqlite_cmd,
     ingest_cmd,
     latest_red_cmd,
+    query_cmd,
     run_cmd,
 )
 
@@ -26,6 +27,7 @@ def _build_parser() -> argparse.ArgumentParser:
     export_sqlite_cmd.configure_parser(subparsers)
     import_sqlite_cmd.configure_parser(subparsers)
     db_cmd.configure_parser(subparsers)
+    query_cmd.configure_parser(subparsers)
     return parser
 
 
@@ -50,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         return import_sqlite_cmd.run(args)
     if args.command == "db":
         return db_cmd.run(args)
+    if args.command == "query":
+        return query_cmd.run(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

@@ -9,6 +9,7 @@ Reusable tooling for capturing pytest results, ingesting them into a relational 
   - `run`: execute pytest under `uv`, capture JSONL + JUnit artifacts, and optionally ingest the run.
   - `ingest`: load `summary.json` or JSONL artifacts into the database.
   - `latest-red`: list the latest failing/erroring tests for a project/suite.
+  - `query`: rich history lookups (latest red commit, failure details, flip-to-green commit, branch/commit comparisons) with pytest-like selectors and JSON output.
   - `backfill`: ingest historical `summary.json` files in bulk.
   - `export-sqlite` / `import-sqlite`: migrate data between database backends.
   - `db`: drive Alembic migrations (`upgrade`, `downgrade`, `current`, `history`, `stamp`, `revision`).
@@ -28,6 +29,8 @@ The package declares `sqlalchemy`, `sqlmodel`, `aiosqlite`, `asyncpg`, and `alem
 $ pytest-chronicle run --suite pytest-smoke packages/survi -- -k smoke
 $ pytest-chronicle ingest --summary packages/survi/.artifacts/test-results/summary.json
 $ pytest-chronicle latest-red --project-like "packages/survi%"
+$ pytest-chronicle query last-red --project-like "packages/survi%" -k "smoke and not slow" --format json
+$ pytest-chronicle query compare --branch main --branch feature/login -k login --format json --pretty
 $ pytest-chronicle backfill --glob packages/survi/reports/*/summary.json
 $ pytest-chronicle export-sqlite --database-url sqlite+aiosqlite:///test_results.db --out export.sqlite
 $ pytest-chronicle import-sqlite --sqlite export.sqlite --database-url postgresql+asyncpg://user:pass@localhost/db
@@ -35,6 +38,17 @@ $ pytest-chronicle db --database-url sqlite+aiosqlite:///test_results.db upgrade
 ```
 
 All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SCS_DATABASE_URL` when `--database-url` is omitted. SQLite targets default to `<repo>/test_results.db`.
+
+### Querying test history
+
+`pytest-chronicle query` wraps the raw SQL needed for common investigations:
+
+- `last-red`: per-test latest failing/erroring occurrence with commit hash and branch.
+- `errors`: same as `last-red` but returns error message/detail/stdout/stderr snapshots.
+- `flipped-green`: the commit where a previously failing test most recently turned passing.
+- `compare`: latest status per test across branches or explicit commits; add `--only-diff` to surface regressions only.
+
+Shared filters mirror pytest selectors where possible: `-k` keyword expression against `nodeid` / classname / test name, `-m` against run-level marks, plus `--project-like`, `--suite`, `--branch`, and `--commit` filters. Output defaults to text; use `--format json --pretty` and `--output <file>` for machine-readable reports. `query errors` truncates message/detail to 400 characters by default and omits stdout/stderr unless `--include-stdout/--include-stderr` is provided.
 
 ### Monorepo Makefile toggle
 
@@ -83,3 +97,4 @@ The CLI tests verify ingestion flows, database helpers, and Alembic commands wit
 - Harden configuration surface (pyproject/pytest.ini integration, env overrides).
 - Publish Alembic migrations as package data and document upgrade paths for new consumers.
 - Finalize documentation, Makefile integration, and packaging story for adoption outside Survi.
+- Formalize pluggable storage/query backends (see `docs/storage-backends.md`).
