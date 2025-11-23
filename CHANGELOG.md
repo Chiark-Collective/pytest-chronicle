@@ -15,6 +15,9 @@
 - Added `pytest-chronicle query timeline` for colored TTY run-by-run status matrices.
 - Docs updated with timeline usage; tests cover JSON output and status rendering.
 
+## 0.2.3 - 2025-11-23
+- Added demo script with verified sandbox steps for recording a GIF.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.
