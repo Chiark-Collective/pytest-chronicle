@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pytest-chronicle
-Version: 0.0.3
+Version: 0.1.1
 Summary: Reusable pytest results ingestion tooling with database export and CLI helpers.
 Author: Survi Team
 License-Expression: MIT
@@ -69,6 +69,16 @@ All commands honour `PYTEST_RESULTS_DB_URL`, `TEST_RESULTS_DATABASE_URL`, or `SC
 - `compare`: latest status per test across branches or explicit commits; add `--only-diff` to surface regressions only.
 
 Shared filters mirror pytest selectors where possible: `-k` keyword expression against `nodeid` / classname / test name, `-m` against run-level marks, plus `--project-like`, `--suite`, `--branch`, and `--commit` filters. Output defaults to text; use `--format json --pretty` and `--output <file>` for machine-readable reports. `query errors` truncates message/detail to 400 characters by default and omits stdout/stderr unless `--include-stdout/--include-stderr` is provided.
+
+### Seamless ingestion from pytest
+
+Enable auto-ingestion by passing `--chronicle-db <url>` directly to pytest (plugin shipped via entry point):
+
+```
+pytest --chronicle-db sqlite:///test_results.db -k smoke
+```
+
+The plugin will write JSONL to `.artifacts/test-results/chronicle-results.jsonl` if not provided and ingest at session end. Optional overrides: `--chronicle-project`, `--chronicle-suite`, `--chronicle-no-ingest` (skip while keeping JSONL export). Both `sqlite:///...` and `sqlite+aiosqlite:///...` are accepted.
 
 ### Monorepo Makefile toggle
 

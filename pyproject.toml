@@ -1,6 +1,6 @@
 [project]
 name = "pytest-chronicle"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reusable pytest results ingestion tooling with database export and CLI helpers."
 readme = "README.md"
 requires-python = ">=3.12"
