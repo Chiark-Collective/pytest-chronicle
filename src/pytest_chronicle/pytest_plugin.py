@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from pathlib import Path
 
-from pytest_chronicle.config import get_default_config
+from pytest_chronicle.config import get_default_config, default_database_url
 
 try:
     import requests  # optional dependency
@@ -91,7 +91,7 @@ def pytest_configure(config) -> None:
     except Exception:
         jsonl = None
 
-    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url
+    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url or default_database_url()
     chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
     chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     if chronicle_db and not jsonl:
@@ -183,7 +183,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
     jsonl = config.getoption("--results-jsonl")
     endpoint = config.getoption("--results-endpoint")
     defaults = get_default_config()
-    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url
+    chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url or default_database_url()
     chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
     chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     chronicle_no = getattr(config.option, "chronicle_no_ingest", False)

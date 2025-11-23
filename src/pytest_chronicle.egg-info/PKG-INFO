@@ -64,7 +64,7 @@ pytest-chronicle query last-red --format json --pretty             # ask questio
 
 ## Pytest plugin (auto ingestion)
 - Install the package; the `pytest_chronicle` plugin is auto-discovered.
-- Add `--chronicle-db <url>` (or rely on env/config precedence) to ingest at session end. Disable with `--chronicle-no-ingest`.
+- If a database is configured via env/config (or fallback SQLite), the plugin will ingest automatically at session end. You can still pass `--chronicle-db <url>` to override, or `--chronicle-no-ingest` to skip.
 - Default JSONL path: `.artifacts/test-results/chronicle-results.jsonl` (created automatically).
 
 ## More docs

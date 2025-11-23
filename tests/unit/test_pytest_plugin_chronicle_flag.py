@@ -59,3 +59,13 @@ def test_plugin_uses_repo_config_when_flag_absent(tmp_path: Path) -> None:
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
     assert rows == 1
+
+
+def test_plugin_falls_back_to_default_sqlite(tmp_path: Path) -> None:
+    code, out, err = _run_pytest(tmp_path, None)
+    assert code == 0, f"pytest failed: {out}\n{err}"
+    db_path = tmp_path / ".pytest-chronicle" / "chronicle.db"
+    assert db_path.exists(), "default sqlite database was not created"
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
+    assert rows == 1
