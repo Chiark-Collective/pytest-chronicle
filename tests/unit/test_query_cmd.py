@@ -124,6 +124,28 @@ def _make_db(tmp_path: Path) -> str:
     return f"sqlite+aiosqlite:///{db_path}"
 
 
+def _make_timeline_db(tmp_path: Path) -> tuple[str, list[str]]:
+    db_path = tmp_path / "timeline.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+
+    run_ids: list[str] = []
+    for idx, status in enumerate(["failed", "passed", "error", "passed"]):
+        run_id = f"rt{idx}"
+        run_ids.append(run_id)
+        _insert_run(
+            engine,
+            run_id=run_id,
+            nodeid="pkg/test_timeline.py::test_timeline",
+            status=status,
+            head_sha=f"sha{idx}",
+            branch="main" if idx % 2 == 0 else "dev",
+            created_at=now - timedelta(minutes=idx),
+        )
+    return f"sqlite+aiosqlite:///{db_path}", run_ids
+
+
 def test_query_last_red_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db_url = _make_db(tmp_path)
 
@@ -311,3 +333,25 @@ def test_query_errors_truncation_and_stream_flags(tmp_path: Path, capsys: pytest
     item = payload["items"][0]
     assert item["stdout_text"].startswith("x" * 10)
     assert len(item["stdout_text"]) == 600
+
+
+def test_query_timeline(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url, _ = _make_timeline_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "timeline",
+        "--database-url",
+        db_url,
+        "--runs",
+        "3",
+        "--max-tests",
+        "5",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "timeline"
+    assert len(payload["runs"]) == 3
+    assert payload["items"][0]["statuses"][0] in {"failed", "passed", "error", "."}

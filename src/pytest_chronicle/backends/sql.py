@@ -347,3 +347,82 @@ class SqlQueryBackend(QueryBackend):
         if common.limit:
             filtered = filtered[: common.limit]
         return filtered
+
+    def timeline(self, common: QueryParams, runs: int, max_tests: int | None) -> dict[str, Any]:
+        """Return a matrix of recent runs vs test statuses."""
+        where_sql, params = _build_where(common)
+        params = dict(params)
+        params["run_limit"] = runs
+        sql_runs = f"""
+        SELECT tr.id, tr.head_sha, tr.branch, tr.created_at, tr.marks
+        FROM test_runs tr
+        WHERE {where_sql}
+        ORDER BY tr.created_at DESC
+        LIMIT :run_limit;
+        """
+        with self._engine.connect() as conn:
+            run_rows = conn.execute(text(sql_runs), params).mappings().all()
+        if not run_rows:
+            return {"kind": "timeline", "runs": [], "items": []}
+
+        run_ids = [row["id"] for row in run_rows]
+        placeholder_ids = ", ".join([f":r{idx}" for idx, _ in enumerate(run_ids)])
+        params_cases: dict[str, Any] = {f"r{idx}": run_id for idx, run_id in enumerate(run_ids)}
+        sql_cases = f"""
+        SELECT tc.run_id, tc.nodeid, tc.classname, tc.name, tc.status
+        FROM test_cases tc
+        WHERE tc.run_id IN ({placeholder_ids});
+        """
+        with self._engine.connect() as conn:
+            case_rows = conn.execute(text(sql_cases), params_cases).mappings().all()
+
+        # Build run metadata with optional marks filtering.
+        runs_meta: list[dict[str, Any]] = []
+        marks_ok: list[bool] = []
+        for row in run_rows:
+            ok = True
+            if common.marks and not _matches_keyword(common.marks, [row.get("marks", "")]):
+                ok = False
+            marks_ok.append(ok)
+            runs_meta.append(
+                {
+                    "id": row["id"],
+                    "head_sha": row.get("head_sha"),
+                    "branch": row.get("branch"),
+                    "created_at": row.get("created_at"),
+                }
+            )
+
+        matrix: dict[str, dict[str, Any]] = {}
+        for case in case_rows:
+            run_id = case["run_id"]
+            try:
+                col_idx = run_ids.index(run_id)
+            except ValueError:
+                continue
+            if not marks_ok[col_idx]:
+                continue  # skip this run due to marks filter
+            nodeid = case["nodeid"]
+            row_entry = matrix.setdefault(
+                nodeid,
+                {
+                    "nodeid": nodeid,
+                    "classname": case.get("classname", ""),
+                    "name": case.get("name", ""),
+                    "statuses": ["." for _ in run_ids],
+                },
+            )
+            row_entry["statuses"][col_idx] = case.get("status", "?")
+
+        # Filter by keyword after aggregation.
+        filtered_items: list[dict[str, Any]] = []
+        for entry in matrix.values():
+            if not _matches_keyword(common.keyword, [entry.get("nodeid", ""), entry.get("classname", ""), entry.get("name", "")]):
+                continue
+            filtered_items.append(entry)
+
+        filtered_items.sort(key=lambda e: e["nodeid"])
+        if max_tests is not None:
+            filtered_items = filtered_items[: max_tests]
+
+        return {"kind": "timeline", "runs": runs_meta, "items": filtered_items}

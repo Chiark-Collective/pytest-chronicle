@@ -73,7 +73,7 @@ def _emit(payload: dict[str, Any], args: argparse.Namespace) -> None:
     if args.format == "json":
         text_out = json.dumps(payload, indent=2 if args.pretty else None)
     else:
-        text_out = _render_text(payload)
+        text_out = _render_text(payload, args)
 
     if args.output:
         out_path = Path(args.output)
@@ -83,7 +83,7 @@ def _emit(payload: dict[str, Any], args: argparse.Namespace) -> None:
         print(text_out)
 
 
-def _render_text(payload: dict[str, Any]) -> str:
+def _render_text(payload: dict[str, Any], args: argparse.Namespace) -> str:
     kind = payload.get("kind", "")
     items: list[dict[str, Any]] = payload.get("items", [])
     lines: list[str] = []
@@ -109,6 +109,39 @@ def _render_text(payload: dict[str, Any]) -> str:
             for source in item.get("sources", []):
                 parts.append(f"{source.get('source')}={source.get('status', '')}@{source.get('head_sha', '')}")
             lines.append(" | ".join(parts))
+    elif kind == "timeline":
+        runs: list[dict[str, Any]] = payload.get("runs", [])
+        if runs:
+            commit_cells = [f"{(r.get('head_sha') or '')[:7]}@{r.get('branch') or ''}" for r in runs]
+            time_cells = [str(r.get("created_at") or "") for r in runs]
+            lines.append("Commits: " + "  ".join(commit_cells))
+            lines.append("When:    " + "  ".join(time_cells))
+            lines.append("-" * max(40, len(lines[-1])))
+        status_map = {
+            "passed": ("P", "\x1b[32m"),  # green
+            "failed": ("F", "\x1b[31m"),  # red
+            "error": ("E", "\x1b[35m"),   # magenta
+            "skipped": ("S", "\x1b[33m"), # yellow
+        }
+        color_enabled = not getattr(args, "no_color", False)
+        compact = getattr(args, "compact", False)
+        for item in items:
+            name = item.get("nodeid", "")
+            statuses = item.get("statuses", [])
+            rendered: list[str] = []
+            for st in statuses:
+                glyph, color = status_map.get(st, (".", "\x1b[90m"))
+                if not st or st == ".":
+                    glyph, color = ".", ""
+                if color_enabled and color:
+                    rendered.append(f"{color}{glyph}\x1b[0m")
+                else:
+                    rendered.append(glyph)
+            status_str = (" " if not compact else "").join(rendered)
+            if not compact:
+                lines.append(f"{name:<60} {status_str}")
+            else:
+                lines.append(f"{name} {status_str}")
     else:
         lines.append(json.dumps(payload))
     return "\n".join(lines)
@@ -172,6 +205,16 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         help="Only include tests whose status differs across the requested sources.",
     )
 
+    timeline = sub.add_parser(
+        "timeline",
+        help="Visual timeline of recent runs for matching tests.",
+        parents=[base, output, db_parent],
+    )
+    timeline.add_argument("--runs", type=int, default=15, help="Number of most recent runs to display (columns).")
+    timeline.add_argument("--max-tests", type=int, default=30, help="Limit number of test rows displayed.")
+    timeline.add_argument("--no-color", action="store_true", help="Disable ANSI colors in text output.")
+    timeline.add_argument("--compact", action="store_true", help="Compact output (no padding).")
+
     return parser
 
 
@@ -208,6 +251,8 @@ def run(args: argparse.Namespace) -> int:
                     if len({src.get("status") for src in item.get("sources", [])}) > 1
                 ]
             payload = {"kind": "compare", "items": items}
+        elif args.query_command == "timeline":
+            payload = backend.timeline(params, runs=args.runs, max_tests=args.max_tests)
         else:
             print(f"Unknown query command: {args.query_command}", file=sys.stderr)
             return 2

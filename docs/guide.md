@@ -45,6 +45,7 @@ Tips:
   - `errors`: latest failure details (message/detail/stdout/stderr; truncated by default, toggle with `--include-stdout/--include-stderr`, `--max-chars`).
   - `flipped-green`: commit where a previously red test most recently turned green (shows previous failing commit).
   - `compare`: latest status per test across branches/commits; `--only-diff` to surface regressions.
+- `query timeline`: TTY-friendly status matrix of recent runs. Options: `--runs N` (columns), `--max-tests M`, `--compact`, `--no-color`. Shows commit headers and per-test P/F/E/S/`.` marks across time.
 - `latest-red`: lightweight “still red” listing (per-test or latest run modes).
 - `backfill`: ingest many summary.json artifacts (`--glob` patterns, `--dry-run` to list).
 - `export-sqlite` / `import-sqlite`: move data between backends using a portable SQLite file.
