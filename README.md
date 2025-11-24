@@ -1,23 +1,20 @@
 # pytest-chronicle
 
-Searchable git-aware pytest history with a lean CLI and easy storage backends: capture results, ingest into SQLite or Postgres, and answer “when did this test last go red?” or “which commit flipped it green?”.
+Searchable git-aware pytest history with a lean CLI and easy storage backends. 
+
+Pin down regressions. Squash bugs. Join the Federation today.
 
 ## What it does
 
-Install from PyPI and configure (`pytest-chronicle init`).
-
-Running `pytest` now: 
-
+Running `pytest`:
 - Emits per-test records (result/stdout/stderr/traceback) 
 - Persists test result records to SQLite / Postgres (or implement your own storage backend) with:
     - git/CI metadata
-    - parent pytest run parameters
+    - pytest invocation parameters
     - timestamps
     - user-defined labels
 
-
-
-
+With the `pytest-chronicle` CLI you can now query the test result history.
 
 ## Install
 
@@ -28,15 +25,15 @@ pip install pytest-chronicle
 ## Quickstart
 
 ```bash
-pytest-chronicle init  # create config + local sqlite
-pytest -q                                                           # auto-ingests using config/env/fallback SQLite
-pytest-chronicle query last-red --format json --pretty             # ask questions
+pytest-chronicle init                                     # create config + local sqlite
+pytest -q                                                 # auto-ingests using config/env/fallback SQLite
+pytest-chronicle query last-green --format json --pretty    # ask questions
 ```
 
 ## Common commands
 - `pytest-chronicle init` – scaffold `.pytest-chronicle.toml` and an async SQLite DB.
 - `pytest-chronicle ingest --jsonl <path>` – ingest JSONL/summary artifacts.
-- `pytest-chronicle query last-red|errors|flipped-green|compare` – history lookups (`-k`/`-m` like pytest).
+- `pytest-chronicle query last-red|last-green|errors|flipped-green|compare` – history lookups (`-k`/`-m` like pytest).
 - `pytest-chronicle query timeline` – colored TTY timeline of recent runs for matching tests.
 - `pytest-chronicle run <project> -- <pytest args>` – run pytest under `uv`, collect artifacts, optionally ingest.
 - `pytest-chronicle backfill` – ingest many summary.json files.

@@ -22,6 +22,11 @@
 - `pytest-chronicle init` now auto-detects project name from pyproject.toml or the current directory and emits guidance on how to change it.
 - Docs updated to reflect project auto-detection behavior.
 
+## 0.2.5 - 2025-11-23
+- Added `query last-green` to surface the most recent passing run per test.
+- Introduced label/tag support (`--label/--labels`) as the preferred replacement for suite; config accepts comma-separated labels.
+- Captured pytest invocation string during ingestion; docs updated accordingly.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.

@@ -168,6 +168,22 @@ def test_query_last_red_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture
     capsys.readouterr()
     exit_code = cli_main([
         "query",
+        "last-green",
+        "--database-url",
+        db_url,
+        "--project-like",
+        "%",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    green = json.loads(capsys.readouterr().out)
+    assert green["kind"] == "last-green"
+    assert any(it["status"] == "passed" for it in green["items"])
+
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
         "errors",
         "--database-url",
         db_url,

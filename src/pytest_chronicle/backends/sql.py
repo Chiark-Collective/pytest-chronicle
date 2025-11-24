@@ -218,6 +218,37 @@ class SqlQueryBackend(QueryBackend):
             rows = conn.execute(text(sql), params).mappings().all()
         return _filter_and_trim(rows, common)
 
+    def last_green(self, common: QueryParams) -> list[dict[str, Any]]:
+        where_sql, params = _build_where(common)
+        sql = f"""
+        WITH filtered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tc.message,
+                tc.detail,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+              AND tc.status = 'passed'
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
+            FROM filtered
+        )
+        SELECT * FROM ranked WHERE rn = 1 ORDER BY created_at DESC;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        return _filter_and_trim(rows, common)
+
     def errors(self, common: QueryParams) -> list[dict[str, Any]]:
         where_sql, params = _build_where(common)
         sql = f"""

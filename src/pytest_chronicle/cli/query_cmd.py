@@ -87,7 +87,7 @@ def _render_text(payload: dict[str, Any], args: argparse.Namespace) -> str:
     kind = payload.get("kind", "")
     items: list[dict[str, Any]] = payload.get("items", [])
     lines: list[str] = []
-    if kind in {"last-red", "errors", "flipped-green"}:
+    if kind in {"last-red", "last-green", "errors", "flipped-green"}:
         for item in items:
             parts = [item.get("nodeid", ""), f"status={item.get('status', '')}", f"commit={item.get('head_sha', '')}"]
             if item.get("branch"):
@@ -173,6 +173,11 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         help="Show the most recent failing run per matching test (commit hash included).",
         parents=[base, output, db_parent],
     )
+    sub.add_parser(
+        "last-green",
+        help="Show the most recent passing run per matching test (commit hash included).",
+        parents=[base, output, db_parent],
+    )
 
     errors = sub.add_parser(
         "errors",
@@ -231,6 +236,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         if args.query_command == "last-red":
             payload = {"kind": "last-red", "items": backend.last_red(params)}
+        elif args.query_command == "last-green":
+            payload = {"kind": "last-green", "items": backend.last_green(params)}
         elif args.query_command == "errors":
             items = backend.errors(params)
             items = _prepare_errors(items, args)
