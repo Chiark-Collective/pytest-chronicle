@@ -4,7 +4,7 @@ This walkthrough shows a failing test, timeline inspection, a fix, and a green r
 
 ## One-time setup
 ```bash
-pytest-chronicle init --project demo --suite pytest   # creates .pytest-chronicle.toml + local sqlite
+pytest-chronicle init --project demo --label pytest   # creates .pytest-chronicle.toml + local sqlite
 ```
 
 Create the files:
@@ -57,10 +57,11 @@ def divide_and_offset(x: int) -> float:
 clear
 pytest -q
 pytest-chronicle query last-red --format text
+pytest-chronicle query last-green --format text
 pytest-chronicle query flipped-green --format text
 pytest-chronicle query timeline --runs 5 --max-tests 10 --compact
 ```
-Expect: last-red empty for this test, flipped-green shows the new run, timeline shows the flip to P on the latest column.
+Expect: last-green shows the latest passing run; last-red still points to the previous failure until another failure happens; flipped-green shows the new run; timeline shows the flip to P on the latest column.
 
 ## Recording tips
 - Keep terminal width modest; `--compact` keeps the timeline sparkline tight.
@@ -75,14 +76,15 @@ source .venv/bin/activate
 pip install -e ../pytest-chronicle pytest
 
 # create mathops.py and test_mathops.py as above
-pytest-chronicle init --project demo --suite pytest
+pytest-chronicle init --project demo --label pytest
 pytest -q                                           # captures failing run
 pytest-chronicle query errors --format text
 pytest-chronicle query timeline --runs 5 --max-tests 10 --compact
 
 # fix mathops.py (return 1.0 when x == 0)
-PYTEST_RESULTS_SUITE=after-fix pytest -q            # captures passing run
+PYTEST_RESULTS_LABELS=after-fix pytest -q           # captures passing run with a label
 pytest-chronicle query timeline --runs 5 --max-tests 10 --compact
+pytest-chronicle query last-green --format text
 pytest-chronicle query flipped-green --format text
 ```
-Observed: timeline shows `P F` progression for the failing test; `flipped-green` reports the passing run; ingestion to `.pytest-chronicle/chronicle.db` happens automatically via the plugin.
+Observed: timeline shows `P F` progression for the failing test; `last-green` and `flipped-green` report the passing run; ingestion to `.pytest-chronicle/chronicle.db` happens automatically via the plugin.
