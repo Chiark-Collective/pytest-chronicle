@@ -18,6 +18,10 @@
 ## 0.2.3 - 2025-11-23
 - Added demo script with verified sandbox steps for recording a GIF.
 
+## 0.2.4 - 2025-11-23
+- `pytest-chronicle init` now auto-detects project name from pyproject.toml or the current directory and emits guidance on how to change it.
+- Docs updated to reflect project auto-detection behavior.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.
