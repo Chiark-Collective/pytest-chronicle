@@ -27,6 +27,10 @@
 - Introduced label/tag support (`--label/--labels`) as the preferred replacement for suite; config accepts comma-separated labels.
 - Captured pytest invocation string during ingestion; docs updated accordingly.
 
+## 0.2.6 - 2025-11-23
+- Added label filters and `--since-days` to query commands.
+- Tests cover label/time filtering; docs/README mention the new options.
+
 ## 0.1.1 - 2025-11-23
 - Added rich `query` CLI (last-red/errors/flipped-green/compare) with pytest-like selectors and JSON/text output.
 - Introduced pluggable query backends and SQL backend implementation; documented backend extension path.
