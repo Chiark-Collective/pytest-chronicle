@@ -42,6 +42,7 @@ pytest-chronicle query last-red --format json --pretty             # ask questio
   suite = "pytest"
   ```
 - Typical flow: use SQLite for local dev (via `init`); point env or config at Postgres for CI/prod. No other changes needed.
+- If you skip `--project` during `init`, it is auto-detected from `pyproject.toml` (or the current folder name); the CLI tells you how to change it later.
 
 ## Pytest plugin (auto ingestion)
 - Install the package; the `pytest_chronicle` plugin is auto-discovered.

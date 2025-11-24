@@ -32,14 +32,32 @@ async def _create_schema(db_url: str) -> None:
     await engine.dispose()
 
 
+def _detect_project(cwd: Path) -> str:
+    """Best-effort project detection."""
+    pyproject = cwd / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            import tomllib
+
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                project = data.get("project") or {}
+                name = project.get("name")
+                if name:
+                    return str(name)
+        except Exception:
+            pass
+    return cwd.name
+
+
 def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(
         "init",
         help="Create a repo-local .pytest-chronicle.toml and an async SQLite database by default.",
     )
     parser.add_argument("--database-url", help="Database URL to persist (default: async SQLite under the repo).")
-    parser.add_argument("--project", help="Default project name to store in runs.")
-    parser.add_argument("--suite", help="Default suite name to store in runs.")
+    parser.add_argument("--project", help="Default project name to store in runs (auto-detected when omitted).")
+    parser.add_argument("--suite", help="Default suite/label to store in runs (optional).")
     parser.add_argument("--config-path", help="Where to write the config (default: repo/.pytest-chronicle.toml).")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing config file.")
     parser.add_argument(
@@ -63,6 +81,10 @@ def run(args: argparse.Namespace) -> int:
 
     db_url = args.database_url or existing.database_url or fallback_sqlite_url(cwd)
     project = args.project or existing.project or defaults.project
+    if not project:
+        project = _detect_project(cwd)
+        print(f"[chronicle] detected project name '{project}' (from {('pyproject.toml' if (cwd / 'pyproject.toml').exists() else 'current directory')})")
+        print(f"[chronicle] edit {cfg_path} or rerun `pytest-chronicle init --project NAME` to change it.")
     suite = args.suite or existing.suite or defaults.suite
 
     ensure_sqlite_parent(db_url)

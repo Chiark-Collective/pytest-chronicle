@@ -33,6 +33,7 @@ Tips:
 - Use SQLite (from `pytest-chronicle init`) for local development.
 - Point the config or env at Postgres for CI/prod; no code changes required.
 - `PYTEST_CHRONICLE_CONFIG` can point to an alternate config path for monorepos.
+- If `--project` is omitted during `init`, the name is auto-detected from `pyproject.toml` (or the current directory name) and a message explains how to change it later.
 
 ## CLI commands
 

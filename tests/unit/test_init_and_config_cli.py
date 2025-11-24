@@ -131,3 +131,14 @@ def test_config_set_creates_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert cfg_path.exists()
     text = cfg_path.read_text()
     assert "configured.db" in text
+
+
+def test_init_autodetects_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "autodemo"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    exit_code = cli_main(["init", "--no-schema"])
+    assert exit_code == 0
+    cfg_path = tmp_path / ".pytest-chronicle.toml"
+    assert cfg_path.exists()
+    content = cfg_path.read_text()
+    assert 'project = "autodemo"' in content
