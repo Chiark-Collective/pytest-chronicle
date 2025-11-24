@@ -336,8 +336,8 @@ wheels = [
 
 [[package]]
 name = "pytest-chronicle"
-version = "0.2.3"
-source = { virtual = "." }
+version = "0.2.6"
+source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
