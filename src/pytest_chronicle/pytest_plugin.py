@@ -33,7 +33,15 @@ def _to_async_url(db_url: str) -> str:
     return db_url
 
 
-def _ingest_from_jsonl(terminalreporter, *, jsonl_path: Path, database_url: str, project: str | None, suite: str | None) -> None:
+def _ingest_from_jsonl(
+    terminalreporter,
+    *,
+    jsonl_path: Path,
+    database_url: str,
+    project: str | None,
+    suite: str | None,
+    pytest_args: str | None,
+) -> None:
     try:
         from pytest_chronicle.ingest import ingest as ingest_async
     except Exception as exc:  # pragma: no cover - import guard
@@ -51,6 +59,7 @@ def _ingest_from_jsonl(terminalreporter, *, jsonl_path: Path, database_url: str,
                 run_id=None,
                 run_key=None,
                 print_id=False,
+                pytest_args=pytest_args,
             )
         )
         terminalreporter.write_line(f"[chronicle] ingested run into {database_url}")
@@ -187,6 +196,11 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
     chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
     chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     chronicle_no = getattr(config.option, "chronicle_no_ingest", False)
+    try:
+        invocation = getattr(config, "invocation_params", None)
+        pytest_args = " ".join(invocation.args) if invocation and invocation.args else ""
+    except Exception:
+        pytest_args = ""
 
     if jsonl:
         jsonl_path = Path(jsonl)
@@ -214,4 +228,5 @@ def pytest_terminal_summary(terminalreporter, exitstatus) -> None:
             database_url=chronicle_db,
             project=chronicle_project,
             suite=chronicle_suite,
+            pytest_args=pytest_args,
         )

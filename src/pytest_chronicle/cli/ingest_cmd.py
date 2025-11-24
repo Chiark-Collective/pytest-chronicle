@@ -18,7 +18,8 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     group.add_argument("--jsonl", help="Path to JSONL produced by the pytest results plugin")
     parser.add_argument("--database-url", help="Override database URL (otherwise env/default detection is used)")
     parser.add_argument("--project", help="Logical project name to store with the run")
-    parser.add_argument("--suite", help="Suite label (e.g., survi-gpu)")
+    parser.add_argument("--label", "--labels", dest="labels", help="Comma-separated labels/tags to store with the run.")
+    parser.add_argument("--suite", help="(Deprecated) suite label; prefer --label/--labels.")
     parser.add_argument("--run-id", help="Explicit run ID (UUID generated when omitted)")
     parser.add_argument("--run-key", help="Custom idempotency key (defaults to commit/project/suite hash)")
     parser.add_argument("--print-id", action="store_true", help="Print the run_id on success")
@@ -30,14 +31,18 @@ async def _execute(args: argparse.Namespace) -> str:
     database_url = (args.database_url or default_database_url()).strip()
     summary_path = args.summary or args.jsonl
     assert summary_path, "Either --summary or --jsonl must be provided"
+    labels = args.labels or args.suite
+    if labels:
+        labels = ",".join([p.strip() for p in labels.split(",") if p.strip()])
     return await ingest_async(
         summary_path=Path(summary_path),
         database_url=database_url,
         project=args.project or defaults.project,
-        suite=args.suite or defaults.suite,
+        suite=labels or defaults.suite,
         run_id=args.run_id,
         run_key=args.run_key,
         print_id=args.print_id,
+        pytest_args=None,
     )
 
 

@@ -25,7 +25,7 @@ Config file example:
 [chronicle]
 database_url = "postgresql+asyncpg://user:pass@host:5432/dbname"
 project = "my-project"
-suite = "pytest"
+suite = "ci-smoke,linux"  # labels/tags (comma-separated)
 jsonl_path = ".artifacts/test-results/chronicle-results.jsonl"
 ```
 
@@ -34,12 +34,13 @@ Tips:
 - Point the config or env at Postgres for CI/prod; no code changes required.
 - `PYTEST_CHRONICLE_CONFIG` can point to an alternate config path for monorepos.
 - If `--project` is omitted during `init`, the name is auto-detected from `pyproject.toml` (or the current directory name) and a message explains how to change it later.
+- Labels are optional; pass `--label a,b` (or `--labels`) during `init`/`run`, or set `suite` in the config file as a comma-separated list.
 
 ## CLI commands
 
 - `init`: create `.pytest-chronicle.toml`; default DB is async SQLite under `.pytest-chronicle/chronicle.db`. `--database-url` overrides; `--no-schema` skips schema creation.
 - `config show|set`: inspect or update repo defaults without retyping flags.
-- `run <project> -- <pytest args>`: run pytest via `uv run`, write JSONL/JUnit/summary artifacts, and (unless `--skip-ingest`) ingest into the resolved database.
+- `run <project> -- <pytest args>`: run pytest via `uv run`, write JSONL/JUnit/summary artifacts, and (unless `--skip-ingest`) ingest into the resolved database (stores the pytest invocation string).
 - `ingest --jsonl <path>` or `--summary <path>`: ingest artifacts with optional `--project/--suite/--run-id/--run-key`.
 - `query last-red|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite`, `--branch`, `--commit`, `--limit`. Output: `--format text|json`, `--pretty`, `--output <file>`.
   - `last-red`: most recent failing/erroring occurrence per test (with commit, branch, run id).

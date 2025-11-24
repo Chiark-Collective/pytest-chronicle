@@ -191,6 +191,7 @@ async def ingest(
     run_id: str | None,
     run_key: str | None,
     print_id: bool = False,
+    pytest_args: str | None = None,
 ) -> str:
     if summary_path.suffix == ".jsonl":
         tests = load_jsonl_cases(summary_path)
@@ -271,7 +272,7 @@ async def ingest(
             },
             "env": {},
             "marks": "",
-            "pytest_args": "",
+            "pytest_args": pytest_args or "",
         }
     else:
         summary = load_summary(summary_path)
@@ -323,7 +324,7 @@ async def ingest(
                 is_dirty=git.is_dirty,
                 gpu=str(summary.get("gpu", "")),
                 marks=str(summary.get("marks", "")),
-                pytest_args=str(summary.get("pytest_args", "")),
+                pytest_args=str(summary.get("pytest_args", pytest_args or "")),
                 platform=platform.platform(),
                 python_version=platform.python_version(),
                 host=platform.node(),

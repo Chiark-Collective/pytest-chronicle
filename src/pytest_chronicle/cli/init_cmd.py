@@ -50,6 +50,14 @@ def _detect_project(cwd: Path) -> str:
     return cwd.name
 
 
+def _normalize_labels(labels: str | None, suite: str | None) -> str | None:
+    chosen = labels or suite
+    if not chosen:
+        return None
+    parts = [p.strip() for p in chosen.split(",") if p.strip()]
+    return ",".join(parts) if parts else None
+
+
 def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(
         "init",
@@ -57,7 +65,8 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     )
     parser.add_argument("--database-url", help="Database URL to persist (default: async SQLite under the repo).")
     parser.add_argument("--project", help="Default project name to store in runs (auto-detected when omitted).")
-    parser.add_argument("--suite", help="Default suite/label to store in runs (optional).")
+    parser.add_argument("--label", "--labels", dest="labels", help="Comma-separated labels to store in runs (optional).")
+    parser.add_argument("--suite", help="(Deprecated) suite name; prefer --label/--labels.")
     parser.add_argument("--config-path", help="Where to write the config (default: repo/.pytest-chronicle.toml).")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing config file.")
     parser.add_argument(
@@ -85,7 +94,7 @@ def run(args: argparse.Namespace) -> int:
         project = _detect_project(cwd)
         print(f"[chronicle] detected project name '{project}' (from {('pyproject.toml' if (cwd / 'pyproject.toml').exists() else 'current directory')})")
         print(f"[chronicle] edit {cfg_path} or rerun `pytest-chronicle init --project NAME` to change it.")
-    suite = args.suite or existing.suite or defaults.suite
+    suite = _normalize_labels(args.labels, args.suite) or existing.suite or defaults.suite
 
     ensure_sqlite_parent(db_url)
     config = TrackerConfig(

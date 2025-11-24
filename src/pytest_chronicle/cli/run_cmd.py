@@ -24,7 +24,8 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         help="Project path relative to the repository root (defaults to current directory).",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER, help="Arguments passed through to pytest (use -- to separate).")
-    parser.add_argument("--suite", default=None, help="Suite label to store with the run (defaults to pytest).")
+    parser.add_argument("--label", "--labels", dest="labels", default=None, help="Comma-separated labels to store with the run.")
+    parser.add_argument("--suite", default=None, help="(Deprecated) suite name; prefer --label/--labels.")
     parser.add_argument("--gpu", default=os.getenv("GPU", "cpu"), help="GPU label stored alongside the run (default from $GPU or cpu).")
     parser.add_argument("--skip-ingest", action="store_true", help="Only run pytest and produce artifacts; skip ingestion.")
     parser.add_argument("--database-url", help="Override database URL.")
@@ -132,6 +133,14 @@ def _compute_code_hash(root: Path, project_rel: str) -> str:
     return hash_proc.stdout.strip().split()[0]
 
 
+def _normalize_labels(labels: str | None, suite: str | None) -> str | None:
+    chosen = labels or suite
+    if not chosen:
+        return None
+    parts = [p.strip() for p in chosen.split(",") if p.strip()]
+    return ",".join(parts) if parts else None
+
+
 def _run_junit_to_summary(root: Path, junit: Path, summary: Path, status: str, gpu: str, code_hash: str, head_sha: str, report_dir: Path, env: dict[str, str]) -> int:
     script = root / "tools" / "junit_to_summary.py"
     if not script.exists():
@@ -195,17 +204,18 @@ def run(args: argparse.Namespace) -> int:
     if not args.skip_ingest:
         defaults = get_default_config()
         db_url = args.database_url or default_database_url()
-        suite = args.suite or defaults.suite or "pytest"
+        labels = _normalize_labels(args.labels, args.suite) or defaults.suite
         try:
             asyncio.run(
                 ingest_async(
                     summary_path=jsonl_path,
                     database_url=db_url,
                     project=project_rel,
-                    suite=suite,
+                    suite=labels,
                     run_id=None,
                     run_key=None,
                     print_id=False,
+                    pytest_args=" ".join(pytest_args),
                 )
             )
         except Exception as exc:

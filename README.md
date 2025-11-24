@@ -1,22 +1,34 @@
 # pytest-chronicle
 
-Traceable pytest history: capture results, ingest into SQLite or Postgres, and answer “when did this test last go red?” or “which commit flipped it green?”.
+Searchable git-aware pytest history with a lean CLI and easy storage backends: capture results, ingest into SQLite or Postgres, and answer “when did this test last go red?” or “which commit flipped it green?”.
 
 ## What it does
-- Pytest plugin emits per-test JSONL records (stdout/stderr/traceback included).
-- Ingestion stamps runs with git/CI metadata and writes to SQLite or Postgres.
-- CLI queries last failures, error details, flip-to-green commits, and branch/commit diffs with pytest-like selectors.
+
+Install from PyPI and configure (`pytest-chronicle init`).
+
+Running `pytest` now: 
+
+- Emits per-test records (result/stdout/stderr/traceback) 
+- Persists test result records to SQLite / Postgres (or implement your own storage backend) with:
+    - git/CI metadata
+    - parent pytest run parameters
+    - timestamps
+    - user-defined labels
+
+
+
+
 
 ## Install
 
 ```bash
-uv pip install pytest-chronicle
+pip install pytest-chronicle
 ```
 
 ## Quickstart
 
 ```bash
-pytest-chronicle init --project my-project --suite pytest          # create config + local sqlite
+pytest-chronicle init  # create config + local sqlite
 pytest -q                                                           # auto-ingests using config/env/fallback SQLite
 pytest-chronicle query last-red --format json --pretty             # ask questions
 ```
@@ -39,7 +51,7 @@ pytest-chronicle query last-red --format json --pretty             # ask questio
   [chronicle]
   database_url = "postgresql+asyncpg://user:pass@host/db"
   project = "my-project"
-  suite = "pytest"
+  suite = "ci-smoke,linux"   # labels/tags (comma-separated)
   ```
 - Typical flow: use SQLite for local dev (via `init`); point env or config at Postgres for CI/prod. No other changes needed.
 - If you skip `--project` during `init`, it is auto-detected from `pyproject.toml` (or the current folder name); the CLI tells you how to change it later.
