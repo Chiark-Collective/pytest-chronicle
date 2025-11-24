@@ -11,15 +11,23 @@ from pytest_chronicle.config import resolve_database_url
 from pytest_chronicle.ingest import default_database_url
 
 
+from datetime import datetime, timedelta, timezone
+
+
 def _parse_common_args(args: argparse.Namespace) -> QueryParams:
+    since = None
+    if getattr(args, "since_days", None):
+        since = datetime.now(timezone.utc) - timedelta(days=args.since_days)
     return QueryParams(
         project_like=args.project_like,
         suite=args.suite,
+        labels=getattr(args, "labels", None),
         branches=args.branch or [],
         commits=args.commit or [],
         keyword=args.keyword,
         marks=args.mark,
         limit=args.limit,
+        since=since,
     )
 
 
@@ -153,12 +161,14 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
 
     base = argparse.ArgumentParser(add_help=False)
     base.add_argument("--project-like", default="%", help="SQL LIKE filter for project column (default: %).")
-    base.add_argument("--suite", help="Optional suite filter.")
+    base.add_argument("--suite", help="Optional suite/label filter (deprecated, use --labels).")
+    base.add_argument("--label", "--labels", dest="labels", help="Comma-separated label filter.")
     base.add_argument("--branch", action="append", help="Restrict to one or more branches (can repeat).")
     base.add_argument("--commit", action="append", help="Restrict to specific head shas (can repeat).")
     base.add_argument("-k", "--keyword", help="Pytest -k style keyword expression against nodeid/classname/name.")
     base.add_argument("-m", "--mark", help="Simple mark expression matched against run marks.")
     base.add_argument("--limit", type=int, default=50, help="Max number of rows returned (default 50).")
+    base.add_argument("--since-days", type=int, help="Only include runs from the last N days.")
 
     output = argparse.ArgumentParser(add_help=False)
     output.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")

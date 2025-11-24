@@ -42,7 +42,7 @@ Tips:
 - `config show|set`: inspect or update repo defaults without retyping flags.
 - `run <project> -- <pytest args>`: run pytest via `uv run`, write JSONL/JUnit/summary artifacts, and (unless `--skip-ingest`) ingest into the resolved database (stores the pytest invocation string).
 - `ingest --jsonl <path>` or `--summary <path>`: ingest artifacts with optional `--project/--suite/--run-id/--run-key`.
-- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite`, `--branch`, `--commit`, `--limit`. Output: `--format text|json`, `--pretty`, `--output <file>`.
+- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite/--labels`, `--branch`, `--commit`, `--limit`, `--since-days`. Output: `--format text|json`, `--pretty`, `--output <file>`.
   - `last-red`: most recent failing/erroring occurrence per test (with commit, branch, run id).
   - `last-green`: most recent passing occurrence per test.
   - `errors`: latest failure details (message/detail/stdout/stderr; truncated by default, toggle with `--include-stdout/--include-stderr`, `--max-chars`).

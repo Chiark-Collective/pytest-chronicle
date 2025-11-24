@@ -33,7 +33,7 @@ pytest-chronicle query last-green --format json --pretty    # ask questions
 ## Common commands
 - `pytest-chronicle init` – scaffold `.pytest-chronicle.toml` and an async SQLite DB.
 - `pytest-chronicle ingest --jsonl <path>` – ingest JSONL/summary artifacts.
-- `pytest-chronicle query last-red|last-green|errors|flipped-green|compare` – history lookups (`-k`/`-m` like pytest).
+- `pytest-chronicle query last-red|last-green|errors|flipped-green|compare` – history lookups (`-k`/`-m` like pytest, plus `--labels`, `--since-days`).
 - `pytest-chronicle query timeline` – colored TTY timeline of recent runs for matching tests.
 - `pytest-chronicle run <project> -- <pytest args>` – run pytest under `uv`, collect artifacts, optionally ingest.
 - `pytest-chronicle backfill` – ingest many summary.json files.

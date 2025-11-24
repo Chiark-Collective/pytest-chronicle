@@ -142,6 +142,9 @@ def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
     if common.suite:
         clauses.append("tr.suite = :suite")
         params["suite"] = common.suite
+    if common.labels:
+        clauses.append("tr.suite = :labels")
+        params["labels"] = common.labels
     if common.branches:
         clause, extras = _in_clause("tr.branch", "branch", common.branches)
         clauses.append(clause)
@@ -150,6 +153,9 @@ def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
         clause, extras = _in_clause("tr.head_sha", "commit", common.commits)
         clauses.append(clause)
         params.update(extras)
+    if common.since:
+        clauses.append("tr.created_at >= :since_ts")
+        params["since_ts"] = common.since
     return " AND ".join(clauses), params
 
 

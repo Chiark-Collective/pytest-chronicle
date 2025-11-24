@@ -21,6 +21,7 @@ def _insert_run(
     branch: str,
     created_at: datetime,
     marks: str = "smoke",
+    suite: str = "suite",
     message: str = "boom",
     detail: str = "traceback",
     stdout: str = "stdout",
@@ -32,7 +33,7 @@ def _insert_run(
             id=run_id,
             created_at=created_at,
             project="proj",
-            suite="suite",
+            suite=suite,
             status=run_status,
             head_sha=head_sha,
             code_hash="hash",
@@ -142,8 +143,47 @@ def _make_timeline_db(tmp_path: Path) -> tuple[str, list[str]]:
             head_sha=f"sha{idx}",
             branch="main" if idx % 2 == 0 else "dev",
             created_at=now - timedelta(minutes=idx),
+            marks="labels",
         )
     return f"sqlite+aiosqlite:///{db_path}", run_ids
+
+
+def _make_label_db(tmp_path: Path) -> str:
+    db_path = tmp_path / "labels.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+    _insert_run(
+        engine,
+        run_id="r-label1",
+        nodeid="pkg/test_lab.py::test_a",
+        status="passed",
+        head_sha="aa",
+        branch="main",
+        created_at=now - timedelta(days=1),
+        marks="smoke",
+        suite="smoke",
+        detail="",
+        message="",
+        stdout="",
+        stderr="",
+    )
+    _insert_run(
+        engine,
+        run_id="r-label2",
+        nodeid="pkg/test_lab.py::test_a",
+        status="passed",
+        head_sha="bb",
+        branch="main",
+        created_at=now - timedelta(days=10),
+        marks="regression",
+        suite="regression",
+        detail="",
+        message="",
+        stdout="",
+        stderr="",
+    )
+    return f"sqlite+aiosqlite:///{db_path}"
 
 
 def test_query_last_red_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -371,3 +411,24 @@ def test_query_timeline(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert payload["kind"] == "timeline"
     assert len(payload["runs"]) == 3
     assert payload["items"][0]["statuses"][0] in {"failed", "passed", "error", "."}
+
+
+def test_query_label_and_since(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_label_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-green",
+        "--database-url",
+        db_url,
+        "--labels",
+        "smoke",
+        "--since-days",
+        "5",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["items"], "Expected item filtered by label and since-days"
+    assert payload["items"][0]["head_sha"] == "aa"
