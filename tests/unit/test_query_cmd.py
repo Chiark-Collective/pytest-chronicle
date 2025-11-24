@@ -423,12 +423,12 @@ def test_query_label_and_since(tmp_path: Path, capsys: pytest.CaptureFixture[str
         db_url,
         "--labels",
         "smoke",
-        "--since-days",
-        "5",
+        "--since",
+        "5d",
         "--format",
         "json",
     ])
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["items"], "Expected item filtered by label and since-days"
+    assert payload["items"], "Expected item filtered by label and since"
     assert payload["items"][0]["head_sha"] == "aa"

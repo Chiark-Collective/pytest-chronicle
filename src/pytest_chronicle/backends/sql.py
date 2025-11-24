@@ -156,6 +156,9 @@ def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
     if common.since:
         clauses.append("tr.created_at >= :since_ts")
         params["since_ts"] = common.since
+    if common.until:
+        clauses.append("tr.created_at <= :until_ts")
+        params["until_ts"] = common.until
     return " AND ".join(clauses), params
 
 

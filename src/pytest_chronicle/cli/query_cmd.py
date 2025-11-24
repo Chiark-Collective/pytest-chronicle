@@ -14,10 +14,30 @@ from pytest_chronicle.ingest import default_database_url
 from datetime import datetime, timedelta, timezone
 
 
+def _parse_time_arg(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    val = value.strip()
+    now = datetime.now(timezone.utc)
+    # duration like 5h, 30m, 2d
+    if val[-1] in {"h", "m", "d"} and val[:-1].replace(".", "", 1).isdigit():
+        num = float(val[:-1])
+        if val.endswith("h"):
+            return now - timedelta(hours=num)
+        if val.endswith("m"):
+            return now - timedelta(minutes=num)
+        if val.endswith("d"):
+            return now - timedelta(days=num)
+    # ISO8601 timestamp
+    try:
+        return datetime.fromisoformat(val)
+    except Exception:
+        return None
+
+
 def _parse_common_args(args: argparse.Namespace) -> QueryParams:
-    since = None
-    if getattr(args, "since_days", None):
-        since = datetime.now(timezone.utc) - timedelta(days=args.since_days)
+    since = _parse_time_arg(getattr(args, "since", None))
+    until = _parse_time_arg(getattr(args, "until", None))
     return QueryParams(
         project_like=args.project_like,
         suite=args.suite,
@@ -28,6 +48,7 @@ def _parse_common_args(args: argparse.Namespace) -> QueryParams:
         marks=args.mark,
         limit=args.limit,
         since=since,
+        until=until,
     )
 
 
@@ -168,7 +189,8 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     base.add_argument("-k", "--keyword", help="Pytest -k style keyword expression against nodeid/classname/name.")
     base.add_argument("-m", "--mark", help="Simple mark expression matched against run marks.")
     base.add_argument("--limit", type=int, default=50, help="Max number of rows returned (default 50).")
-    base.add_argument("--since-days", type=int, help="Only include runs from the last N days.")
+    base.add_argument("--since", help="Only include runs after this time (duration like 5h/2d or ISO timestamp).")
+    base.add_argument("--until", help="Only include runs before this time (duration like 1d or ISO timestamp).")
 
     output = argparse.ArgumentParser(add_help=False)
     output.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")

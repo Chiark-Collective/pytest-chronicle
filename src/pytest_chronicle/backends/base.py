@@ -26,6 +26,7 @@ class QueryParams:
         marks: str | None,
         limit: int,
         since: "datetime | None" = None,
+        until: "datetime | None" = None,
     ) -> None:
         self.project_like = project_like
         self.suite = suite
@@ -36,6 +37,7 @@ class QueryParams:
         self.marks = marks
         self.limit = limit
         self.since = since
+        self.until = until
 
     def with_limit(self, new_limit: int) -> "QueryParams":
         return QueryParams(
@@ -48,4 +50,5 @@ class QueryParams:
             marks=self.marks,
             limit=new_limit,
             since=self.since,
+            until=self.until,
         )
