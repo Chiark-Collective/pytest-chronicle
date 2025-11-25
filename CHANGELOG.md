@@ -6,6 +6,10 @@
 - Surfaced per-test runtime (`time_sec`) across query outputs (JSON/text/compare); timeline/compare retain status-only view.
 - Docs updated for selectors, runtimes, and output options; added unit coverage for selectors and runtime presence.
 
+## 0.3.1 - 2025-11-24
+- Mark missing/unknown statuses as `?` in timeline/compare text output and fill timeline gaps accordingly.
+- Tests cover timeline gaps and compare missing-source behavior; docs mention the `?` marker.
+
 ## 0.2.0 - 2025-11-23
 - Added repo-level configuration via `.pytest-chronicle.toml` with precedence (CLI > env > config > fallback).
 - New `pytest-chronicle init` helper to scaffold config plus an async SQLite database by default.
