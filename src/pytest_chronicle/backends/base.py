@@ -25,6 +25,7 @@ class QueryParams:
         keyword: str | None,
         marks: str | None,
         limit: int,
+        selectors: list[str] | None = None,
         since: "datetime | None" = None,
         until: "datetime | None" = None,
     ) -> None:
@@ -36,6 +37,7 @@ class QueryParams:
         self.keyword = keyword
         self.marks = marks
         self.limit = limit
+        self.selectors = selectors or []
         self.since = since
         self.until = until
 
@@ -49,6 +51,7 @@ class QueryParams:
             keyword=self.keyword,
             marks=self.marks,
             limit=new_limit,
+            selectors=self.selectors,
             since=self.since,
             until=self.until,
         )

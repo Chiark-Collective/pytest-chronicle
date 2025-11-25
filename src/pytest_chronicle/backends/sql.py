@@ -124,6 +124,29 @@ def _matches_keyword(expr: str | None, haystacks: Iterable[str]) -> bool:
     return tree.eval(haystacks)
 
 
+def _normalize_selector(selector: str) -> str:
+    selector = selector.strip()
+    selector = selector.replace("\\", "/")
+    if selector.startswith("./"):
+        selector = selector[2:]
+    return selector
+
+
+def _matches_selector_list(selectors: list[str], nodeid: str) -> bool:
+    if not selectors:
+        return True
+    normalized_nodeid = str(nodeid or "").replace("\\", "/")
+    for sel in selectors:
+        if not sel:
+            continue
+        # pytest nodeid selection is prefix-based; allow substring fallback.
+        if normalized_nodeid.startswith(sel):
+            return True
+        if sel in normalized_nodeid:
+            return True
+    return False
+
+
 def _in_clause(column: str, prefix: str, values: list[str]) -> tuple[str, dict[str, Any]]:
     params: dict[str, Any] = {}
     if not values:
@@ -163,9 +186,12 @@ def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
 
 
 def _filter_and_trim(rows: list[dict[str, Any]], common: QueryParams, apply_limit: bool = True) -> list[dict[str, Any]]:
+    selectors = [_normalize_selector(sel) for sel in common.selectors if sel]
     filtered: list[dict[str, Any]] = []
     for row in rows:
         nodeid = row.get("nodeid", "")
+        if selectors and not _matches_selector_list(selectors, nodeid):
+            continue
         if not _matches_keyword(common.keyword, [nodeid, row.get("classname", ""), row.get("name", "")]):
             continue
         if common.marks and not _matches_keyword(common.marks, [row.get("marks", "")]):
@@ -207,6 +233,7 @@ class SqlQueryBackend(QueryBackend):
                 tc.status,
                 tc.message,
                 tc.detail,
+                tc.time_sec,
                 tr.head_sha,
                 tr.branch,
                 tr.created_at,
@@ -238,6 +265,7 @@ class SqlQueryBackend(QueryBackend):
                 tc.status,
                 tc.message,
                 tc.detail,
+                tc.time_sec,
                 tr.head_sha,
                 tr.branch,
                 tr.created_at,
@@ -271,6 +299,7 @@ class SqlQueryBackend(QueryBackend):
                 tc.detail,
                 tc.stdout_text,
                 tc.stderr_text,
+                tc.time_sec,
                 tr.head_sha,
                 tr.branch,
                 tr.created_at,
@@ -300,6 +329,7 @@ class SqlQueryBackend(QueryBackend):
                 tc.classname,
                 tc.name,
                 tc.status,
+                tc.time_sec,
                 tr.head_sha,
                 tr.branch,
                 tr.created_at,
@@ -334,6 +364,7 @@ class SqlQueryBackend(QueryBackend):
                 tc.classname,
                 tc.name,
                 tc.status,
+                tc.time_sec,
                 tr.head_sha,
                 tr.branch,
                 tr.created_at,

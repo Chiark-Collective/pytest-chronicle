@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import shlex
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 from typing import Any
@@ -11,7 +14,10 @@ from pytest_chronicle.config import resolve_database_url
 from pytest_chronicle.ingest import default_database_url
 
 
-from datetime import datetime, timedelta, timezone
+from rich import box
+from rich.console import Console
+from rich.table import Table
+from rich.text import Text
 
 
 def _parse_time_arg(value: str | None) -> datetime | None:
@@ -35,18 +41,47 @@ def _parse_time_arg(value: str | None) -> datetime | None:
         return None
 
 
+def _parse_pytest_select(arg: str | None) -> tuple[list[str], str | None, str | None]:
+    if not arg:
+        return [], None, None
+    tests: list[str] = []
+    keyword: str | None = None
+    mark: str | None = None
+    tokens = shlex.split(arg)
+    it = iter(tokens)
+    for tok in it:
+        if tok == "--":
+            tests.extend(list(it))
+            break
+        if tok in ("-k", "--keyword"):
+            keyword = next(it, None)
+            continue
+        if tok in ("-m", "--markexpr"):
+            mark = next(it, None)
+            continue
+        if tok.startswith("-"):
+            # Unknown option; ignore and keep parsing.
+            continue
+        tests.append(tok)
+    return tests, keyword, mark
+
+
 def _parse_common_args(args: argparse.Namespace) -> QueryParams:
     since = _parse_time_arg(getattr(args, "since", None))
     until = _parse_time_arg(getattr(args, "until", None))
+    pytest_tests, pytest_keyword, pytest_mark = _parse_pytest_select(getattr(args, "pytest_select", None))
+    selectors = list(getattr(args, "tests", None) or [])
+    selectors.extend(pytest_tests)
     return QueryParams(
         project_like=args.project_like,
         suite=args.suite,
         labels=getattr(args, "labels", None),
         branches=args.branch or [],
         commits=args.commit or [],
-        keyword=args.keyword,
-        marks=args.mark,
+        keyword=args.keyword or pytest_keyword,
+        marks=args.mark or pytest_mark,
         limit=args.limit,
+        selectors=selectors,
         since=since,
         until=until,
     )
@@ -97,83 +132,208 @@ def _to_jsonable(obj: Any) -> Any:
     return obj
 
 
+def _shorten_sha(value: str | None, length: int = 10) -> str:
+    if not value:
+        return ""
+    return value[:length]
+
+
+def _status_text(status: str | None, *, glyph: bool = False) -> Text:
+    mapping = {
+        "passed": ("P", "green"),
+        "failed": ("F", "red"),
+        "error": ("E", "magenta"),
+        "skipped": ("S", "yellow"),
+    }
+    if not status:
+        return Text("", style="bright_black")
+    key = str(status).lower()
+    glyph_char, style = mapping.get(key, ("." if glyph else status, "bright_black"))
+    label = glyph_char if glyph else status
+    return Text(label, style=style)
+
+
+def _build_console(args: argparse.Namespace, *, to_file: bool = False, file: Any | None = None, record: bool = False) -> Console:
+    disable_color = getattr(args, "no_color", False) or to_file
+    return Console(
+        file=file,
+        no_color=disable_color,
+        record=record,
+    )
+
+
+def _format_seconds(value: Any) -> str:
+    try:
+        num = float(value)
+    except Exception:
+        return ""
+    if num >= 1:
+        return f"{num:.2f}s"
+    return f"{num * 1000:.0f}ms"
+
+
+def _render_status_table(kind: str, items: list[dict[str, Any]], console: Console) -> None:
+    has_branch = any(item.get("branch") for item in items)
+    table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    table.add_column("Test", overflow="fold")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Commit", no_wrap=True, style="cyan")
+    table.add_column("Time", no_wrap=True, justify="right")
+    if has_branch:
+        table.add_column("Branch", no_wrap=True)
+    table.add_column("When", no_wrap=True)
+    table.add_column("Run", no_wrap=True)
+    if kind == "errors":
+        table.add_column("Message", overflow="fold")
+    elif kind == "flipped-green":
+        table.add_column("From", no_wrap=True, style="dim")
+
+    for item in items:
+        status_cell = _status_text(item.get("status"))
+        commit_cell = _shorten_sha(item.get("head_sha"))
+        time_cell = _format_seconds(item.get("time_sec"))
+        row: list[Any] = [
+            item.get("nodeid", ""),
+            status_cell,
+            commit_cell,
+            time_cell,
+        ]
+        if has_branch:
+            row.append(item.get("branch") or "")
+        row.append(str(item.get("created_at") or ""))
+        row.append(str(item.get("run_id") or ""))
+
+        if kind == "errors":
+            msg = item.get("message") or item.get("detail") or ""
+            preview = msg.splitlines()[0] if msg else ""
+            row.append(preview)
+        elif kind == "flipped-green":
+            row.append(_shorten_sha(item.get("prev_head_sha")))
+
+        table.add_row(*row)
+
+    console.print(table)
+
+
+def _render_compare(items: list[dict[str, Any]], console: Console) -> None:
+    if not items:
+        console.print("No results.")
+        return
+
+    columns: list[str] = []
+    for item in items:
+        for src in item.get("sources", []):
+            name = src.get("source")
+            if name and name not in columns:
+                columns.append(name)
+
+    table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    table.add_column("Test", overflow="fold")
+    for col in columns:
+        table.add_column(col, no_wrap=True, justify="center")
+
+    for item in items:
+        row: list[Any] = [item.get("nodeid", "")]
+        mapping = {src.get("source"): src for src in item.get("sources", [])}
+        for col in columns:
+            src = mapping.get(col)
+            if not src:
+                row.append("")
+                continue
+            status_cell = _status_text(src.get("status"))
+            sha = _shorten_sha(src.get("head_sha"))
+            if sha:
+                status_cell.append("\n")
+                status_cell.append(sha, style="dim")
+            time_cell = _format_seconds(src.get("time_sec"))
+            if time_cell:
+                status_cell.append("\n")
+                status_cell.append(time_cell, style="bright_black")
+            row.append(status_cell)
+        table.add_row(*row)
+
+    console.print(table)
+
+
+def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console: Console) -> None:
+    runs: list[dict[str, Any]] = payload.get("runs", [])
+    items: list[dict[str, Any]] = payload.get("items", [])
+    if not runs:
+        console.print("No runs found.")
+        return
+
+    compact = getattr(args, "compact", False)
+    table = Table(
+        box=box.SIMPLE_HEAVY,
+        expand=not compact,
+        padding=(0, 0 if compact else 1),
+        show_lines=False,
+    )
+    table.add_column("Test", overflow="fold")
+    for run in runs:
+        label = _shorten_sha(run.get("head_sha"))
+        branch = run.get("branch")
+        if branch:
+            label = f"{label}@{branch}"
+        table.add_column(label, justify="center", no_wrap=True)
+
+    for item in items:
+        statuses = item.get("statuses", [])
+        cells: list[Text] = []
+        for idx in range(len(runs)):
+            status = statuses[idx] if idx < len(statuses) else None
+            cells.append(_status_text(status, glyph=True))
+        table.add_row(item.get("nodeid", ""), *cells)
+
+    created_cells = [str(r.get("created_at") or "") for r in runs]
+    if any(created_cells):
+        table.caption = f"When: {' | '.join(created_cells)}"
+
+    console.print(table)
+
+
+def _render_text(payload: dict[str, Any], args: argparse.Namespace, console: Console) -> None:
+    kind = payload.get("kind", "")
+    items: list[dict[str, Any]] = payload.get("items", [])
+    if kind in {"last-red", "last-green", "errors", "flipped-green"}:
+        _render_status_table(kind, items, console)
+    elif kind == "compare":
+        _render_compare(items, console)
+    elif kind == "timeline":
+        _render_timeline(payload, args, console)
+    else:
+        console.print(json.dumps(payload, indent=2))
+
+
 def _emit(payload: dict[str, Any], args: argparse.Namespace) -> None:
     payload = _to_jsonable(payload)
     if args.format == "json":
         text_out = json.dumps(payload, indent=2 if args.pretty else None)
-    else:
-        text_out = _render_text(payload, args)
+        if args.output:
+            out_path = Path(args.output)
+            if text_out and not text_out.endswith("\n"):
+                text_out += "\n"
+            out_path.write_text(text_out, encoding="utf-8")
+            print(f"wrote {out_path}", file=sys.stderr)
+        else:
+            print(text_out)
+        return
+
+    to_file = bool(args.output)
+
+    buffer = io.StringIO() if to_file else None
+    console = _build_console(args, to_file=to_file, file=buffer, record=to_file)
+    _render_text(payload, args, console)
 
     if args.output:
+        text_out = buffer.getvalue() if buffer else ""
         out_path = Path(args.output)
-        out_path.write_text(text_out + ("\n" if not text_out.endswith("\n") else ""), encoding="utf-8")
+        if text_out and not text_out.endswith("\n"):
+            text_out += "\n"
+        out_path.write_text(text_out, encoding="utf-8")
         print(f"wrote {out_path}", file=sys.stderr)
-    else:
-        print(text_out)
-
-
-def _render_text(payload: dict[str, Any], args: argparse.Namespace) -> str:
-    kind = payload.get("kind", "")
-    items: list[dict[str, Any]] = payload.get("items", [])
-    lines: list[str] = []
-    if kind in {"last-red", "last-green", "errors", "flipped-green"}:
-        for item in items:
-            parts = [item.get("nodeid", ""), f"status={item.get('status', '')}", f"commit={item.get('head_sha', '')}"]
-            if item.get("branch"):
-                parts.append(f"branch={item.get('branch')}")
-            if item.get("created_at"):
-                parts.append(f"when={item.get('created_at')}")
-            parts.append(f"run={item.get('run_id', '')}")
-            if kind == "errors":
-                msg = item.get("message") or item.get("detail") or ""
-                preview = str(msg).splitlines()[0] if msg else ""
-                if preview:
-                    parts.append(f"msg={preview}")
-            if kind == "flipped-green" and item.get("prev_head_sha"):
-                parts.append(f"from={item.get('prev_head_sha')}")
-            lines.append(" | ".join(parts))
-    elif kind == "compare":
-        for item in items:
-            parts = [item.get("nodeid", "")]
-            for source in item.get("sources", []):
-                parts.append(f"{source.get('source')}={source.get('status', '')}@{source.get('head_sha', '')}")
-            lines.append(" | ".join(parts))
-    elif kind == "timeline":
-        runs: list[dict[str, Any]] = payload.get("runs", [])
-        if runs:
-            commit_cells = [f"{(r.get('head_sha') or '')[:7]}@{r.get('branch') or ''}" for r in runs]
-            time_cells = [str(r.get("created_at") or "") for r in runs]
-            lines.append("Commits: " + "  ".join(commit_cells))
-            lines.append("When:    " + "  ".join(time_cells))
-            lines.append("-" * max(40, len(lines[-1])))
-        status_map = {
-            "passed": ("P", "\x1b[32m"),  # green
-            "failed": ("F", "\x1b[31m"),  # red
-            "error": ("E", "\x1b[35m"),   # magenta
-            "skipped": ("S", "\x1b[33m"), # yellow
-        }
-        color_enabled = not getattr(args, "no_color", False)
-        compact = getattr(args, "compact", False)
-        for item in items:
-            name = item.get("nodeid", "")
-            statuses = item.get("statuses", [])
-            rendered: list[str] = []
-            for st in statuses:
-                glyph, color = status_map.get(st, (".", "\x1b[90m"))
-                if not st or st == ".":
-                    glyph, color = ".", ""
-                if color_enabled and color:
-                    rendered.append(f"{color}{glyph}\x1b[0m")
-                else:
-                    rendered.append(glyph)
-            status_str = (" " if not compact else "").join(rendered)
-            if not compact:
-                lines.append(f"{name:<60} {status_str}")
-            else:
-                lines.append(f"{name} {status_str}")
-    else:
-        lines.append(json.dumps(payload))
-    return "\n".join(lines)
+    elif buffer:
+        print(buffer.getvalue(), end="")
 
 
 def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> argparse.ArgumentParser:
@@ -188,14 +348,25 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     base.add_argument("--commit", action="append", help="Restrict to specific head shas (can repeat).")
     base.add_argument("-k", "--keyword", help="Pytest -k style keyword expression against nodeid/classname/name.")
     base.add_argument("-m", "--mark", help="Simple mark expression matched against run marks.")
+    base.add_argument(
+        "--pytest-select",
+        help="Pytest-style selectors string (e.g. \"-m 'slow and gpu' -k expr tests/test_file.py\"). "
+        "Parsed best-effort into -k/-m/nodeid selectors.",
+    )
     base.add_argument("--limit", type=int, default=50, help="Max number of rows returned (default 50).")
     base.add_argument("--since", help="Only include runs after this time (duration like 5h/2d or ISO timestamp).")
     base.add_argument("--until", help="Only include runs before this time (duration like 1d or ISO timestamp).")
+    base.add_argument(
+        "tests",
+        nargs="*",
+        help="Optional pytest-style nodeid selectors (e.g. tests/test_mod.py::TestClass::test_case).",
+    )
 
     output = argparse.ArgumentParser(add_help=False)
     output.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
     output.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     output.add_argument("--output", help="Optional path to write results instead of stdout.")
+    output.add_argument("--no-color", action="store_true", help="Disable ANSI color and styling in output.")
 
     parser = subparsers.add_parser("query", help="Run rich test result queries.")
     sub = parser.add_subparsers(dest="query_command", required=True)
@@ -249,7 +420,6 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     )
     timeline.add_argument("--runs", type=int, default=15, help="Number of most recent runs to display (columns).")
     timeline.add_argument("--max-tests", type=int, default=30, help="Limit number of test rows displayed.")
-    timeline.add_argument("--no-color", action="store_true", help="Disable ANSI colors in text output.")
     timeline.add_argument("--compact", action="store_true", help="Compact output (no padding).")
 
     return parser

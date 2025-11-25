@@ -204,6 +204,7 @@ def test_query_last_red_and_errors(tmp_path: Path, capsys: pytest.CaptureFixture
     assert data["kind"] == "last-red"
     item = data["items"][0]
     assert item["head_sha"] == "deadbeef"
+    assert item["time_sec"] == pytest.approx(0.1)
 
     capsys.readouterr()
     exit_code = cli_main([
@@ -278,6 +279,7 @@ def test_query_compare_branches(tmp_path: Path, capsys: pytest.CaptureFixture[st
     statuses = {s["source"]: s["status"] for s in sources}
     assert statuses["branch:main"] == "passed"
     assert statuses["branch:feature/x"] == "failed"
+    assert all("time_sec" in s for s in sources)
 
 
 def test_query_keyword_filter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -432,3 +434,95 @@ def test_query_label_and_since(tmp_path: Path, capsys: pytest.CaptureFixture[str
     payload = json.loads(capsys.readouterr().out)
     assert payload["items"], "Expected item filtered by label and since"
     assert payload["items"][0]["head_sha"] == "aa"
+
+
+def test_query_filters_by_positional_selectors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-red",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+        "pkg/test_sample.py::test_flaky",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    nodes = {item["nodeid"] for item in payload["items"]}
+    assert nodes == {"pkg/test_sample.py::test_flaky"}
+
+
+def test_query_filters_by_pytest_select_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-red",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+        "--pytest-select=-m slow -k other pkg/test_other.py",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    nodes = {item["nodeid"] for item in payload["items"]}
+    assert nodes == {"pkg/test_other.py::test_other"}
+
+
+def test_explicit_keyword_beats_pytest_select_keyword(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-red",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+        "-k",
+        "flaky",
+        "--pytest-select=-k other",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    nodes = {item["nodeid"] for item in payload["items"]}
+    assert nodes == {"pkg/test_sample.py::test_flaky"}
+
+
+def test_selector_normalizes_backslashes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-red",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+        r"pkg\test_sample.py::test_flaky",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    nodes = {item["nodeid"] for item in payload["items"]}
+    assert nodes == {"pkg/test_sample.py::test_flaky"}
+
+
+def test_selector_substring_match(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "last-red",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+        "test_flaky",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    nodes = {item["nodeid"] for item in payload["items"]}
+    assert nodes == {"pkg/test_sample.py::test_flaky"}

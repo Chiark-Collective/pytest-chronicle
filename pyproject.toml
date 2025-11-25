@@ -12,6 +12,7 @@ dependencies = [
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "alembic>=1.13",
+    "rich>=13.7",
 ]
 
 [project.optional-dependencies]

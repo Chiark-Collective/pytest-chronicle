@@ -12,6 +12,7 @@ Requires-Dist: sqlmodel>=0.0.24
 Requires-Dist: aiosqlite>=0.20
 Requires-Dist: asyncpg>=0.29
 Requires-Dist: alembic>=1.13
+Requires-Dist: rich>=13.7
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.23; extra == "dev"

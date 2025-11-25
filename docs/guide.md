@@ -42,12 +42,13 @@ Tips:
 - `config show|set`: inspect or update repo defaults without retyping flags.
 - `run <project> -- <pytest args>`: run pytest via `uv run`, write JSONL/JUnit/summary artifacts, and (unless `--skip-ingest`) ingest into the resolved database (stores the pytest invocation string).
 - `ingest --jsonl <path>` or `--summary <path>`: ingest artifacts with optional `--project/--suite/--run-id/--run-key`.
-- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite/--labels`, `--branch`, `--commit`, `--limit`, `--since-days`. Output: `--format text|json`, `--pretty`, `--output <file>`.
+- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite/--labels`, `--branch`, `--commit`, `--limit`, `--since-days`. You can also pass pytest-style selectors as positionals (`tests/test_mod.py::Test::test_case`) or bundle them with marks/keywords via `--pytest-select "-m 'slow and gpu' -k expr tests/test_mod.py"`. Output: `--format text|json`, `--pretty`, `--output <file>`, `--no-color`.
   - `last-red`: most recent failing/erroring occurrence per test (with commit, branch, run id).
   - `last-green`: most recent passing occurrence per test.
   - `errors`: latest failure details (message/detail/stdout/stderr; truncated by default, toggle with `--include-stdout/--include-stderr`, `--max-chars`).
   - `flipped-green`: commit where a previously red test most recently turned green (shows previous failing commit).
   - `compare`: latest status per test across branches/commits; `--only-diff` to surface regressions.
+  - Text output shows per-test runtime in the tables; JSON includes `time_sec` on each item/source.
 - `query timeline`: TTY-friendly status matrix of recent runs. Options: `--runs N` (columns), `--max-tests M`, `--compact`, `--no-color`. Shows commit headers and per-test P/F/E/S/`.` marks across time.
 - `latest-red`: lightweight “still red” listing (per-test or latest run modes).
 - `backfill`: ingest many summary.json artifacts (`--glob` patterns, `--dry-run` to list).
