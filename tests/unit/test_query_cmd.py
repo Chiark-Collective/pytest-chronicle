@@ -148,6 +148,63 @@ def _make_timeline_db(tmp_path: Path) -> tuple[str, list[str]]:
     return f"sqlite+aiosqlite:///{db_path}", run_ids
 
 
+def _make_timeline_with_gap(tmp_path: Path) -> str:
+    db_path = tmp_path / "timeline_gap.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+
+    _insert_run(
+        engine,
+        run_id="rg1",
+        nodeid="pkg/test_gap.py::test_gap",
+        status="failed",
+        head_sha="sha1",
+        branch="main",
+        created_at=now - timedelta(minutes=2),
+    )
+
+    # Add a run with no matching test cases (e.g., filtered pytest run).
+    with Session(engine) as session:
+        session.add(
+            TestRun(
+                id="rg2",
+                created_at=now - timedelta(minutes=1),
+                project="proj",
+                suite="suite",
+                status="PASS",
+                head_sha="sha2",
+                code_hash="hash",
+                branch="main",
+                parent_sha="",
+                origin_url="",
+                describe="",
+                commit_timestamp=now.isoformat(),
+                is_dirty=False,
+                gpu="cpu",
+                marks="smoke",
+                pytest_args="-k smoke",
+                platform="linux",
+                python_version="3.12",
+                host="localhost",
+                tests=0,
+                failures=0,
+                errors=0,
+                skipped=0,
+                passed=0,
+                time_sec=0.0,
+                env={},
+                junit={},
+                ci={},
+                report_dir="",
+                run_key="rg2-key",
+            )
+        )
+        session.commit()
+
+    return f"sqlite+aiosqlite:///{db_path}"
+
+
 def _make_label_db(tmp_path: Path) -> str:
     db_path = tmp_path / "labels.sqlite"
     engine = create_engine(f"sqlite:///{db_path}")
@@ -282,6 +339,32 @@ def test_query_compare_branches(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert all("time_sec" in s for s in sources)
 
 
+def test_compare_marks_missing_source_with_unknown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # Only one branch provided, so the other branch column should be missing/unknown.
+    db_url = _make_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "compare",
+        "--database-url",
+        db_url,
+        "--branch",
+        "main",
+        "--branch",
+        "nonexistent",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["items"], "Expected comparison rows"
+    first = payload["items"][0]
+    sources = {s["source"]: s for s in first["sources"]}
+    assert "branch:main" in sources
+    assert sources["branch:main"]["status"] in {"passed", "failed", "error"}
+    assert "branch:nonexistent" not in sources
+
+
 def test_query_keyword_filter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db_url = _make_db(tmp_path)
     capsys.readouterr()
@@ -412,7 +495,30 @@ def test_query_timeline(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     payload = json.loads(capsys.readouterr().out)
     assert payload["kind"] == "timeline"
     assert len(payload["runs"]) == 3
-    assert payload["items"][0]["statuses"][0] in {"failed", "passed", "error", "."}
+    assert payload["items"][0]["statuses"][0] in {"failed", "passed", "error", "?"}
+
+
+def test_timeline_marks_missing_tests_as_unknown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    db_url = _make_timeline_with_gap(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "timeline",
+        "--database-url",
+        db_url,
+        "--runs",
+        "2",
+        "--max-tests",
+        "5",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "timeline"
+    assert len(payload["runs"]) == 2
+    statuses = payload["items"][0]["statuses"]
+    assert statuses == ["?", "failed"]
 
 
 def test_query_label_and_since(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

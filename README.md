@@ -35,7 +35,7 @@ pytest-chronicle query last-red tests/test_mod.py::Test::test_case   # pytest-st
 - `pytest-chronicle init` – scaffold `.pytest-chronicle.toml` and an async SQLite DB.
 - `pytest-chronicle ingest --jsonl <path>` – ingest JSONL/summary artifacts.
 - `pytest-chronicle query last-red|last-green|errors|flipped-green|compare` – history lookups. Filters: `-k`/`-m` like pytest, `--labels`, `--since`, `--until`, `--branch/--commit`, positional pytest-style selectors, or `--pytest-select "-m 'slow' -k expr path::nodeid"`. Outputs include per-test runtime (`time_sec`) and git metadata; text mode shows colored tables by default (`--no-color` to disable).
-- `pytest-chronicle query timeline` – colored TTY timeline of recent runs for matching tests.
+- `pytest-chronicle query timeline` – colored TTY timeline of recent runs for matching tests (`?` marks not-run/filtered cases).
 - `pytest-chronicle run <project> -- <pytest args>` – run pytest under `uv`, collect artifacts, optionally ingest.
 - `pytest-chronicle backfill` – ingest many summary.json files.
 - `pytest-chronicle export-sqlite` / `import-sqlite` – migrate between backends.

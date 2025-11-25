@@ -144,11 +144,12 @@ def _status_text(status: str | None, *, glyph: bool = False) -> Text:
         "failed": ("F", "red"),
         "error": ("E", "magenta"),
         "skipped": ("S", "yellow"),
+        "?": ("?", "bright_black"),
     }
     if not status:
-        return Text("", style="bright_black")
+        return Text("?" if glyph else "", style="bright_black")
     key = str(status).lower()
-    glyph_char, style = mapping.get(key, ("." if glyph else status, "bright_black"))
+    glyph_char, style = mapping.get(key, ("?" if glyph else status, "bright_black"))
     label = glyph_char if glyph else status
     return Text(label, style=style)
 
@@ -238,7 +239,7 @@ def _render_compare(items: list[dict[str, Any]], console: Console) -> None:
         for col in columns:
             src = mapping.get(col)
             if not src:
-                row.append("")
+                row.append(Text("?", style="bright_black"))
                 continue
             status_cell = _status_text(src.get("status"))
             sha = _shorten_sha(src.get("head_sha"))

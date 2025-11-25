@@ -480,7 +480,7 @@ class SqlQueryBackend(QueryBackend):
                     "nodeid": nodeid,
                     "classname": case.get("classname", ""),
                     "name": case.get("name", ""),
-                    "statuses": ["." for _ in run_ids],
+                    "statuses": ["?" for _ in run_ids],
                 },
             )
             row_entry["statuses"][col_idx] = case.get("status", "?")
