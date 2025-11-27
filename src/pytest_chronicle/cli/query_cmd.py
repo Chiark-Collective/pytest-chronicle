@@ -16,6 +16,8 @@ from pytest_chronicle.ingest import default_database_url
 
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -102,8 +104,13 @@ def _maybe_trim(value: Any, max_chars: int | None) -> Any:
 
 def _prepare_errors(items: list[dict[str, Any]], args: argparse.Namespace) -> list[dict[str, Any]]:
     max_chars: int | None = args.max_chars
-    include_stdout = getattr(args, "include_stdout", False)
-    include_stderr = getattr(args, "include_stderr", False)
+    verbosity = getattr(args, "verbosity", 0)
+    # Verbosity levels: -v=1 full traceback, -vv=2 +stdout, -vvv=3 +stderr
+    include_stdout = getattr(args, "include_stdout", False) or verbosity >= 2
+    include_stderr = getattr(args, "include_stderr", False) or verbosity >= 3
+    # Don't truncate in verbose mode
+    if verbosity >= 1:
+        max_chars = None
 
     prepared: list[dict[str, Any]] = []
     for item in items:
@@ -138,6 +145,69 @@ def _shorten_sha(value: str | None, length: int = 10) -> str:
     if not value:
         return ""
     return value[:length]
+
+
+def _shorten_nodeid(nodeid: str, max_width: int | None = None) -> str:
+    """Shorten a test nodeid for display.
+
+    Strips directory path to keep just filename::class::method.
+    If still too long and max_width is set, uses middle truncation with '...'.
+
+    Examples:
+        demo/demo-workspace/test_api.py::TestAuth::test_login
+        -> test_api.py::TestAuth::test_login
+
+        test_api.py::TestAuthEndpoints::test_login_very_long_name
+        -> test_api.py::...::test_login_very_long_name (with max_width)
+    """
+    if not nodeid:
+        return ""
+
+    # Split into path and test parts (path/to/file.py::Class::method)
+    if "::" in nodeid:
+        path_part, rest = nodeid.split("::", 1)
+        # Strip directory path, keep just filename
+        filename = path_part.rsplit("/", 1)[-1]
+        result = f"{filename}::{rest}"
+    else:
+        # No :: separator, just strip directory
+        result = nodeid.rsplit("/", 1)[-1]
+
+    # Apply max_width truncation if needed
+    if max_width and len(result) > max_width:
+        # Try to preserve filename and test method, truncate class name in middle
+        if "::" in result:
+            parts = result.split("::")
+            if len(parts) >= 2:
+                # Keep filename and last part (test method), truncate middle
+                filename = parts[0]
+                test_method = parts[-1]
+                # Calculate available space
+                min_chars = len(filename) + len(test_method) + 6  # for "::" + "..." + "::"
+                if min_chars < max_width and len(parts) > 2:
+                    # Can fit filename + ... + method
+                    result = f"{filename}::...::{test_method}"
+                elif len(result) > max_width:
+                    # Need more aggressive truncation
+                    keep = max_width - 3  # for "..."
+                    half = keep // 2
+                    result = result[:half] + "..." + result[-(keep - half):]
+        else:
+            # Simple middle truncation
+            keep = max_width - 3
+            half = keep // 2
+            result = result[:half] + "..." + result[-(keep - half):]
+
+    return result
+
+
+def _shorten_uuid(value: str | None) -> str:
+    """Shorten a UUID to just the first segment (8 chars before the first dash)."""
+    if not value:
+        return ""
+    # UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    # Return just the first segment
+    return value.split("-")[0] if "-" in value else value[:8]
 
 
 def _status_text(status: str | None, *, glyph: bool = False) -> Text:
@@ -233,7 +303,7 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], args: argparse.
         commit_cell = _shorten_sha(item.get("head_sha"))
         time_cell = _format_time_styled(item.get("time_sec"))
         row: list[Any] = [
-            item.get("nodeid", ""),
+            _shorten_nodeid(item.get("nodeid", "")),
             status_cell,
             commit_cell,
             time_cell,
@@ -243,7 +313,7 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], args: argparse.
         if has_marks:
             row.append(item.get("marks") or "")
         row.append(str(item.get("created_at") or ""))
-        row.append(str(item.get("run_id") or ""))
+        row.append(_shorten_uuid(item.get("run_id")))
 
         if kind == "errors":
             msg = item.get("message") or item.get("detail") or ""
@@ -275,7 +345,7 @@ def _render_compare(items: list[dict[str, Any]], console: Console) -> None:
         table.add_column(col, no_wrap=True, justify="center")
 
     for item in items:
-        row: list[Any] = [item.get("nodeid", "")]
+        row: list[Any] = [_shorten_nodeid(item.get("nodeid", ""))]
         mapping = {src.get("source"): src for src in item.get("sources", [])}
         for col in columns:
             src = mapping.get(col)
@@ -312,7 +382,7 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
         padding=(0, 0 if compact else 1),
         show_lines=False,
     )
-    table.add_column("Test", overflow="fold")
+    table.add_column("Test", overflow="ellipsis", no_wrap=True)
     for run in runs:
         label = _shorten_sha(run.get("head_sha"))
         branch = run.get("branch")
@@ -333,7 +403,7 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
                     cell.append(" ")
                     cell.append_text(time_styled)
             cells.append(cell)
-        table.add_row(item.get("nodeid", ""), *cells)
+        table.add_row(_shorten_nodeid(item.get("nodeid", "")), *cells)
 
     created_cells = [str(r.get("created_at") or "") for r in runs]
     if any(created_cells):
@@ -369,7 +439,7 @@ def _render_slowest_table(items: list[dict[str, Any]], args: argparse.Namespace,
         time_cell = _format_time_styled(item.get("time_sec"))
         commit_cell = _shorten_sha(item.get("head_sha"))
         row: list[Any] = [
-            item.get("nodeid", ""),
+            _shorten_nodeid(item.get("nodeid", "")),
             status_cell,
             time_cell,
             commit_cell,
@@ -379,7 +449,7 @@ def _render_slowest_table(items: list[dict[str, Any]], args: argparse.Namespace,
         if has_marks:
             row.append(item.get("marks") or "")
         row.append(str(item.get("created_at") or ""))
-        row.append(str(item.get("run_id") or ""))
+        row.append(_shorten_uuid(item.get("run_id")))
         table.add_row(*row)
 
     console.print(table)
@@ -425,7 +495,7 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
         rate_text = Text(_format_rate(failure_rate), style=rate_style)
 
         table.add_row(
-            item.get("nodeid", ""),
+            _shorten_nodeid(item.get("nodeid", "")),
             str(item.get("total_runs", 0)),
             str(item.get("passes", 0)),
             str(item.get("failures", 0)),
@@ -438,10 +508,112 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
     console.print(table)
 
 
+def _render_errors_verbose(items: list[dict[str, Any]], args: argparse.Namespace, console: Console) -> None:
+    """Render errors in pytest-like verbose format."""
+    if not items:
+        console.print("No errors found.")
+        return
+
+    verbosity = getattr(args, "verbosity", 0)
+    total = len(items)
+
+    # Short summary header like pytest
+    console.print(Rule(f"[bold red]FAILURES[/] ({total} test{'s' if total != 1 else ''})", style="red"))
+    console.print()
+
+    for i, item in enumerate(items):
+        nodeid = _shorten_nodeid(item.get("nodeid", ""))
+        status = item.get("status", "failed")
+        message = item.get("message", "")
+        detail = item.get("detail", "")
+        stdout_text = item.get("stdout_text", "")
+        stderr_text = item.get("stderr_text", "")
+        time_sec = item.get("time_sec")
+        head_sha = item.get("head_sha", "")
+        branch = item.get("branch", "")
+        created_at = item.get("created_at", "")
+
+        # Test header like pytest: _____ test_name _____
+        console.print(Rule(f"[bold]{nodeid}[/]", style="red", characters="_"))
+        console.print()
+
+        # Metadata line
+        commit_str = _shorten_sha(head_sha)
+        time_text = _format_time_styled(time_sec) if time_sec is not None else Text("")
+        meta_text = Text()
+        if commit_str:
+            meta_text.append("commit: ")
+            meta_text.append(commit_str, style="cyan")
+            meta_text.append("  ")
+        if branch:
+            meta_text.append("branch: ")
+            meta_text.append(branch, style="green")
+            meta_text.append("  ")
+        if time_text.plain:
+            meta_text.append("time: ")
+            meta_text.append_text(time_text)
+            meta_text.append("  ")
+        if created_at:
+            meta_text.append("when: ")
+            meta_text.append(str(created_at)[:19], style="dim")
+        if meta_text.plain.strip():
+            console.print(meta_text)
+            console.print()
+
+        # Error detail (traceback) - format like pytest
+        if detail:
+            for line in detail.splitlines():
+                if line.startswith("E ") or line.startswith("E\t"):
+                    # Error assertion lines in red
+                    console.print(f"[red]{line}[/]")
+                elif line.strip().startswith(">"):
+                    # Source line indicator
+                    console.print(f"[bold]{line}[/]")
+                else:
+                    # Regular traceback lines
+                    console.print(f"[dim]{line}[/]")
+            console.print()
+        elif message:
+            console.print(f"[red]E   {message}[/]")
+            console.print()
+
+        # Captured stdout (verbosity >= 2 or --include-stdout)
+        if stdout_text:
+            console.print(Panel(
+                stdout_text.rstrip(),
+                title="[dim]Captured stdout call[/]",
+                border_style="dim",
+                padding=(0, 1),
+            ))
+            console.print()
+
+        # Captured stderr (verbosity >= 3 or --include-stderr)
+        if stderr_text:
+            console.print(Panel(
+                stderr_text.rstrip(),
+                title="[dim]Captured stderr call[/]",
+                border_style="dim",
+                padding=(0, 1),
+            ))
+            console.print()
+
+        # Separator between tests
+        if i < total - 1:
+            console.print()
+
+    # Short results summary like pytest
+    console.print()
+    console.print(Rule(style="red", characters="="))
+    console.print(f"[bold red]{total} failed[/]")
+
+
 def _render_text(payload: dict[str, Any], args: argparse.Namespace, console: Console) -> None:
     kind = payload.get("kind", "")
     items: list[dict[str, Any]] = payload.get("items", [])
-    if kind in {"last-red", "last-green", "errors", "flipped-green"}:
+    # Use verbose renderer for errors with -v flag
+    if kind == "errors" and getattr(args, "verbosity", 0) >= 1:
+        _render_errors_verbose(items, args, console)
+    elif kind in {"last-red", "last-green", "errors", "flipped-green"}:
         _render_status_table(kind, items, args, console)
     elif kind == "compare":
         _render_compare(items, console)
@@ -537,6 +709,14 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
         "errors",
         help="Show error details for the latest failing occurrence of each matching test.",
         parents=[base, output, db_parent],
+    )
+    errors.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        dest="verbosity",
+        help="Verbose output: -v shows full traceback, -vv adds stdout, -vvv adds stderr. Like pytest output.",
     )
     errors.add_argument("--include-stdout", action="store_true", help="Include stdout snippets in results.")
     errors.add_argument("--include-stderr", action="store_true", help="Include stderr snippets in results.")
