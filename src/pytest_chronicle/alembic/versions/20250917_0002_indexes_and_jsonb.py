@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from alembic import op
-import sqlalchemy as sa
 
 revision = "20250917_0002_indexes_and_jsonb"
 down_revision = "20250917_0001_init"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol, Any
 
 
@@ -28,8 +29,8 @@ class QueryParams:
         marks: str | None,
         limit: int,
         selectors: list[str] | None = None,
-        since: "datetime | None" = None,
-        until: "datetime | None" = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
         statuses: list[str] | None = None,
     ) -> None:
         self.project_like = project_like

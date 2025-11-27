@@ -18,7 +18,6 @@ from pytest_chronicle.config import (
     default_database_url as config_default_database_url,
     ensure_sqlite_parent,
     get_default_config,
-    resolve_database_url,
 )
 
 __all__ = [

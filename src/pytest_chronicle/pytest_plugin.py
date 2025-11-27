@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
-import os
 import asyncio
+import json
 from datetime import datetime, timezone
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from pytest_chronicle.config import get_default_config, default_database_url
 
@@ -101,8 +100,6 @@ def pytest_configure(config) -> None:
         jsonl = None
 
     chronicle_db = getattr(config.option, "chronicle_db", None) or defaults.database_url or default_database_url()
-    chronicle_project = getattr(config.option, "chronicle_project", None) or defaults.project
-    chronicle_suite = getattr(config.option, "chronicle_suite", None) or defaults.suite
     if chronicle_db and not jsonl:
         default_jsonl = Path.cwd() / ".artifacts" / "test-results" / "chronicle-results.jsonl"
         default_jsonl.parent.mkdir(parents=True, exist_ok=True)
