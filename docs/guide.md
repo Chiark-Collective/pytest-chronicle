@@ -42,14 +42,16 @@ Tips:
 - `config show|set`: inspect or update repo defaults without retyping flags.
 - `run <project> -- <pytest args>`: run pytest via `uv run`, write JSONL/JUnit/summary artifacts, and (unless `--skip-ingest`) ingest into the resolved database (stores the pytest invocation string).
 - `ingest --jsonl <path>` or `--summary <path>`: ingest artifacts with optional `--project/--suite/--run-id/--run-key`.
-- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite/--labels`, `--branch`, `--commit`, `--limit`, `--since-days`. You can also pass pytest-style selectors as positionals (`tests/test_mod.py::Test::test_case`) or bundle them with marks/keywords via `--pytest-select "-m 'slow and gpu' -k expr tests/test_mod.py"`. Output: `--format text|json`, `--pretty`, `--output <file>`, `--no-color`.
+- `query last-red|last-green|errors|flipped-green|compare`: rich history lookups. Shared filters: `-k` (pytest keyword expression), `-m` (marks), `--project-like`, `--suite/--labels`, `--branch`, `--commit`, `--limit`, `--since`, `--until`. You can also pass pytest-style selectors as positionals (`tests/test_mod.py::Test::test_case`) or bundle them with marks/keywords via `--pytest-select "-m 'slow and gpu' -k expr tests/test_mod.py"`. Output: `--format text|json`, `--pretty`, `--output <file>`, `--no-color`, `--show-marks`.
   - `last-red`: most recent failing/erroring occurrence per test (with commit, branch, run id).
   - `last-green`: most recent passing occurrence per test.
   - `errors`: latest failure details (message/detail/stdout/stderr; truncated by default, toggle with `--include-stdout/--include-stderr`, `--max-chars`).
   - `flipped-green`: commit where a previously red test most recently turned green (shows previous failing commit).
   - `compare`: latest status per test across branches/commits; `--only-diff` to surface regressions (missing sources show `?`).
-  - Text output shows per-test runtime in the tables; JSON includes `time_sec` on each item/source.
-- `query timeline`: TTY-friendly status matrix of recent runs. Options: `--runs N` (columns), `--max-tests M`, `--compact`, `--no-color`. Shows commit headers and per-test P/F/E/S marks across time; `?` means the test did not run in that column.
+  - Text output shows per-test runtime with smart units (μs/ms/s); slow tests (≥1s) highlighted yellow, very slow (≥5s) in red. JSON includes `time_sec` on each item/source.
+- `query timeline`: TTY-friendly status matrix of recent runs. Options: `--runs N` (columns), `--max-tests M`, `--compact`, `-t`/`--show-times`, `--no-color`. Shows commit headers and per-test P/F/E/S marks across time; `?` means the test did not run in that column.
+- `query slowest`: tests sorted by execution time (slowest first). Use `--status failed` to find slowest failures, `--status passed` for slowest passing tests.
+- `query stats`: per-test failure rates, pass/fail/skip counts, and timing stats (avg/max). Use `--min-runs N` to filter low-sample tests, `--sort-by failure-rate|avg-time|max-time|total-runs` to rank.
 - `latest-red`: lightweight “still red” listing (per-test or latest run modes).
 - `backfill`: ingest many summary.json artifacts (`--glob` patterns, `--dry-run` to list).
 - `export-sqlite` / `import-sqlite`: move data between backends using a portable SQLite file.
