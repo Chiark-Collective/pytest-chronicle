@@ -1085,3 +1085,66 @@ def test_query_stats_with_time_range(tmp_path: Path, capsys: pytest.CaptureFixtu
     # test_stable runs are 10+ hours ago
     assert len(items) == 1
     assert items[0]["nodeid"] == "pkg/test_flaky.py::test_flaky"
+
+
+def test_format_time_styled_smart_units() -> None:
+    """Test that _format_time_styled uses appropriate units."""
+    from pytest_chronicle.cli.query_cmd import _format_time_styled
+
+    # Seconds (>= 1s)
+    result = _format_time_styled(2.5)
+    assert result.plain == "2.50s"
+
+    # Milliseconds (>= 1ms, < 1s)
+    result = _format_time_styled(0.123)
+    assert result.plain == "123ms"
+
+    # Microseconds (< 1ms)
+    result = _format_time_styled(0.000456)
+    assert result.plain == "456μs"
+
+    # Empty for invalid input
+    result = _format_time_styled(None)
+    assert result.plain == ""
+
+
+def test_format_time_styled_slow_highlighting() -> None:
+    """Test that slow tests get highlighted styling."""
+    from pytest_chronicle.cli.query_cmd import _format_time_styled, SLOW_THRESHOLD, VERY_SLOW_THRESHOLD
+
+    # Fast test - no special styling
+    fast = _format_time_styled(0.1)
+    assert fast.style is None or str(fast.style) == ""
+
+    # Slow test (>= SLOW_THRESHOLD) - yellow styling
+    slow = _format_time_styled(SLOW_THRESHOLD + 0.1)
+    assert "yellow" in str(slow.style)
+
+    # Very slow test (>= VERY_SLOW_THRESHOLD) - red styling
+    very_slow = _format_time_styled(VERY_SLOW_THRESHOLD + 1)
+    assert "red" in str(very_slow.style)
+
+
+def test_query_timeline_includes_times(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test timeline query includes times in the data."""
+    db_url, _ = _make_timeline_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "timeline",
+        "--database-url",
+        db_url,
+        "--runs",
+        "3",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "timeline"
+    # Verify times are included in the data
+    items = payload["items"]
+    assert len(items) > 0
+    assert "times" in items[0]
+    # Times should be a list matching the runs length
+    assert isinstance(items[0]["times"], list)

@@ -166,17 +166,52 @@ def _build_console(args: argparse.Namespace, *, to_file: bool = False, file: Any
 
 
 def _format_seconds(value: Any) -> str:
+    """Format seconds as a plain string with smart units."""
     try:
         num = float(value)
     except Exception:
         return ""
     if num >= 1:
         return f"{num:.2f}s"
-    return f"{num * 1000:.0f}ms"
+    if num >= 0.001:
+        return f"{num * 1000:.0f}ms"
+    return f"{num * 1_000_000:.0f}μs"
 
 
-def _render_status_table(kind: str, items: list[dict[str, Any]], console: Console) -> None:
+# Thresholds for slow test highlighting (in seconds)
+SLOW_THRESHOLD = 1.0  # Tests >= 1s are "slow" (yellow)
+VERY_SLOW_THRESHOLD = 5.0  # Tests >= 5s are "very slow" (bold orange/red)
+
+
+def _format_time_styled(value: Any) -> Text:
+    """Format seconds as a Rich Text object with smart units and slow test highlighting."""
+    try:
+        num = float(value)
+    except Exception:
+        return Text("")
+
+    # Determine the display string with appropriate units
+    if num >= 1:
+        display = f"{num:.2f}s"
+    elif num >= 0.001:
+        display = f"{num * 1000:.0f}ms"
+    else:
+        display = f"{num * 1_000_000:.0f}μs"
+
+    # Apply styling based on duration
+    if num >= VERY_SLOW_THRESHOLD:
+        return Text(display, style="bold bright_red")
+    elif num >= SLOW_THRESHOLD:
+        return Text(display, style="bold yellow")
+    else:
+        return Text(display)
+
+
+def _render_status_table(kind: str, items: list[dict[str, Any]], args: argparse.Namespace, console: Console) -> None:
     has_branch = any(item.get("branch") for item in items)
+    show_marks = getattr(args, "show_marks", False)
+    has_marks = show_marks and any(item.get("marks") for item in items)
+
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Test", overflow="fold")
     table.add_column("Status", no_wrap=True)
@@ -184,6 +219,8 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], console: Consol
     table.add_column("Time", no_wrap=True, justify="right")
     if has_branch:
         table.add_column("Branch", no_wrap=True)
+    if has_marks:
+        table.add_column("Marks", no_wrap=True, style="dim")
     table.add_column("When", no_wrap=True)
     table.add_column("Run", no_wrap=True)
     if kind == "errors":
@@ -194,7 +231,7 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], console: Consol
     for item in items:
         status_cell = _status_text(item.get("status"))
         commit_cell = _shorten_sha(item.get("head_sha"))
-        time_cell = _format_seconds(item.get("time_sec"))
+        time_cell = _format_time_styled(item.get("time_sec"))
         row: list[Any] = [
             item.get("nodeid", ""),
             status_cell,
@@ -203,6 +240,8 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], console: Consol
         ]
         if has_branch:
             row.append(item.get("branch") or "")
+        if has_marks:
+            row.append(item.get("marks") or "")
         row.append(str(item.get("created_at") or ""))
         row.append(str(item.get("run_id") or ""))
 
@@ -248,10 +287,10 @@ def _render_compare(items: list[dict[str, Any]], console: Console) -> None:
             if sha:
                 status_cell.append("\n")
                 status_cell.append(sha, style="dim")
-            time_cell = _format_seconds(src.get("time_sec"))
-            if time_cell:
+            time_styled = _format_time_styled(src.get("time_sec"))
+            if time_styled.plain:
                 status_cell.append("\n")
-                status_cell.append(time_cell, style="bright_black")
+                status_cell.append_text(time_styled)
             row.append(status_cell)
         table.add_row(*row)
 
@@ -266,6 +305,7 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
         return
 
     compact = getattr(args, "compact", False)
+    show_times = getattr(args, "show_times", False)
     table = Table(
         box=box.SIMPLE_HEAVY,
         expand=not compact,
@@ -282,10 +322,17 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
 
     for item in items:
         statuses = item.get("statuses", [])
+        times = item.get("times", [])
         cells: list[Text] = []
         for idx in range(len(runs)):
             status = statuses[idx] if idx < len(statuses) else None
-            cells.append(_status_text(status, glyph=True))
+            cell = _status_text(status, glyph=True)
+            if show_times and idx < len(times) and times[idx] is not None:
+                time_styled = _format_time_styled(times[idx])
+                if time_styled.plain:
+                    cell.append(" ")
+                    cell.append_text(time_styled)
+            cells.append(cell)
         table.add_row(item.get("nodeid", ""), *cells)
 
     created_cells = [str(r.get("created_at") or "") for r in runs]
@@ -295,13 +342,16 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
     console.print(table)
 
 
-def _render_slowest_table(items: list[dict[str, Any]], console: Console) -> None:
+def _render_slowest_table(items: list[dict[str, Any]], args: argparse.Namespace, console: Console) -> None:
     """Render tests sorted by execution time."""
     if not items:
         console.print("No results.")
         return
 
     has_branch = any(item.get("branch") for item in items)
+    show_marks = getattr(args, "show_marks", False)
+    has_marks = show_marks and any(item.get("marks") for item in items)
+
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Test", overflow="fold")
     table.add_column("Status", no_wrap=True)
@@ -309,12 +359,14 @@ def _render_slowest_table(items: list[dict[str, Any]], console: Console) -> None
     table.add_column("Commit", no_wrap=True, style="cyan")
     if has_branch:
         table.add_column("Branch", no_wrap=True)
+    if has_marks:
+        table.add_column("Marks", no_wrap=True, style="dim")
     table.add_column("When", no_wrap=True)
     table.add_column("Run", no_wrap=True)
 
     for item in items:
         status_cell = _status_text(item.get("status"))
-        time_cell = _format_seconds(item.get("time_sec"))
+        time_cell = _format_time_styled(item.get("time_sec"))
         commit_cell = _shorten_sha(item.get("head_sha"))
         row: list[Any] = [
             item.get("nodeid", ""),
@@ -324,6 +376,8 @@ def _render_slowest_table(items: list[dict[str, Any]], console: Console) -> None
         ]
         if has_branch:
             row.append(item.get("branch") or "")
+        if has_marks:
+            row.append(item.get("marks") or "")
         row.append(str(item.get("created_at") or ""))
         row.append(str(item.get("run_id") or ""))
         table.add_row(*row)
@@ -377,8 +431,8 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
             str(item.get("failures", 0)),
             str(item.get("skips", 0)),
             rate_text,
-            _format_seconds(item.get("avg_time_sec")),
-            _format_seconds(item.get("max_time_sec")),
+            _format_time_styled(item.get("avg_time_sec")),
+            _format_time_styled(item.get("max_time_sec")),
         )
 
     console.print(table)
@@ -388,13 +442,13 @@ def _render_text(payload: dict[str, Any], args: argparse.Namespace, console: Con
     kind = payload.get("kind", "")
     items: list[dict[str, Any]] = payload.get("items", [])
     if kind in {"last-red", "last-green", "errors", "flipped-green"}:
-        _render_status_table(kind, items, console)
+        _render_status_table(kind, items, args, console)
     elif kind == "compare":
         _render_compare(items, console)
     elif kind == "timeline":
         _render_timeline(payload, args, console)
     elif kind == "slowest":
-        _render_slowest_table(items, console)
+        _render_slowest_table(items, args, console)
     elif kind == "stats":
         _render_stats_table(items, console)
     else:
@@ -463,6 +517,7 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     output.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     output.add_argument("--output", help="Optional path to write results instead of stdout.")
     output.add_argument("--no-color", action="store_true", help="Disable ANSI color and styling in output.")
+    output.add_argument("--show-marks", action="store_true", help="Show test marks/labels in output.")
 
     parser = subparsers.add_parser("query", help="Run rich test result queries.")
     sub = parser.add_subparsers(dest="query_command", required=True)
@@ -517,6 +572,7 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     timeline.add_argument("--runs", type=int, default=15, help="Number of most recent runs to display (columns).")
     timeline.add_argument("--max-tests", type=int, default=30, help="Limit number of test rows displayed.")
     timeline.add_argument("--compact", action="store_true", help="Compact output (no padding).")
+    timeline.add_argument("-t", "--show-times", action="store_true", help="Show execution times alongside status glyphs.")
 
     slowest = sub.add_parser(
         "slowest",

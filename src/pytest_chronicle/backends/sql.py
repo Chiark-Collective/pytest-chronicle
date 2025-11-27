@@ -444,7 +444,7 @@ class SqlQueryBackend(QueryBackend):
         placeholder_ids = ", ".join([f":r{idx}" for idx, _ in enumerate(run_ids)])
         params_cases: dict[str, Any] = {f"r{idx}": run_id for idx, run_id in enumerate(run_ids)}
         sql_cases = f"""
-        SELECT tc.run_id, tc.nodeid, tc.classname, tc.name, tc.status
+        SELECT tc.run_id, tc.nodeid, tc.classname, tc.name, tc.status, tc.time_sec
         FROM test_cases tc
         WHERE tc.run_id IN ({placeholder_ids});
         """
@@ -485,9 +485,11 @@ class SqlQueryBackend(QueryBackend):
                     "classname": case.get("classname", ""),
                     "name": case.get("name", ""),
                     "statuses": ["?" for _ in run_ids],
+                    "times": [None for _ in run_ids],
                 },
             )
             row_entry["statuses"][col_idx] = case.get("status", "?")
+            row_entry["times"][col_idx] = case.get("time_sec")
 
         # Filter by keyword after aggregation.
         filtered_items: list[dict[str, Any]] = []
