@@ -632,3 +632,456 @@ def test_selector_substring_match(tmp_path: Path, capsys: pytest.CaptureFixture[
     payload = json.loads(capsys.readouterr().out)
     nodes = {item["nodeid"] for item in payload["items"]}
     assert nodes == {"pkg/test_sample.py::test_flaky"}
+
+
+def _make_duration_db(tmp_path: Path) -> str:
+    """Create DB with tests of varying durations for slowest/stats testing."""
+    db_path = tmp_path / "duration.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+
+    # test_fast: 0.01s passed
+    with Session(engine) as session:
+        run = TestRun(
+            id="r-fast",
+            created_at=now - timedelta(hours=1),
+            project="proj",
+            suite="suite",
+            status="PASS",
+            head_sha="sha1",
+            code_hash="hash",
+            branch="main",
+            parent_sha="",
+            origin_url="",
+            describe="",
+            commit_timestamp=now.isoformat(),
+            is_dirty=False,
+            gpu="cpu",
+            marks="smoke",
+            pytest_args="",
+            platform="linux",
+            python_version="3.12",
+            host="localhost",
+            tests=1,
+            failures=0,
+            errors=0,
+            skipped=0,
+            passed=1,
+            time_sec=0.01,
+            env={},
+            junit={},
+            ci={},
+            report_dir="",
+            run_key="r-fast-key",
+        )
+        session.add(run)
+        session.add(
+            TestCase(
+                run_id="r-fast",
+                nodeid="pkg/test_perf.py::test_fast",
+                classname="pkg/test_perf.py",
+                name="test_fast",
+                status="passed",
+                time_sec=0.01,
+                message="",
+                detail="",
+                stdout_text="",
+                stderr_text="",
+            )
+        )
+        session.commit()
+
+    # test_slow: 2.5s failed
+    with Session(engine) as session:
+        run = TestRun(
+            id="r-slow",
+            created_at=now - timedelta(minutes=30),
+            project="proj",
+            suite="suite",
+            status="FAIL",
+            head_sha="sha2",
+            code_hash="hash",
+            branch="main",
+            parent_sha="",
+            origin_url="",
+            describe="",
+            commit_timestamp=now.isoformat(),
+            is_dirty=False,
+            gpu="cpu",
+            marks="smoke",
+            pytest_args="",
+            platform="linux",
+            python_version="3.12",
+            host="localhost",
+            tests=1,
+            failures=1,
+            errors=0,
+            skipped=0,
+            passed=0,
+            time_sec=2.5,
+            env={},
+            junit={},
+            ci={},
+            report_dir="",
+            run_key="r-slow-key",
+        )
+        session.add(run)
+        session.add(
+            TestCase(
+                run_id="r-slow",
+                nodeid="pkg/test_perf.py::test_slow",
+                classname="pkg/test_perf.py",
+                name="test_slow",
+                status="failed",
+                time_sec=2.5,
+                message="timeout",
+                detail="took too long",
+                stdout_text="",
+                stderr_text="",
+            )
+        )
+        session.commit()
+
+    # test_medium: 0.5s passed
+    with Session(engine) as session:
+        run = TestRun(
+            id="r-medium",
+            created_at=now - timedelta(minutes=15),
+            project="proj",
+            suite="suite",
+            status="PASS",
+            head_sha="sha3",
+            code_hash="hash",
+            branch="main",
+            parent_sha="",
+            origin_url="",
+            describe="",
+            commit_timestamp=now.isoformat(),
+            is_dirty=False,
+            gpu="cpu",
+            marks="smoke",
+            pytest_args="",
+            platform="linux",
+            python_version="3.12",
+            host="localhost",
+            tests=1,
+            failures=0,
+            errors=0,
+            skipped=0,
+            passed=1,
+            time_sec=0.5,
+            env={},
+            junit={},
+            ci={},
+            report_dir="",
+            run_key="r-medium-key",
+        )
+        session.add(run)
+        session.add(
+            TestCase(
+                run_id="r-medium",
+                nodeid="pkg/test_perf.py::test_medium",
+                classname="pkg/test_perf.py",
+                name="test_medium",
+                status="passed",
+                time_sec=0.5,
+                message="",
+                detail="",
+                stdout_text="",
+                stderr_text="",
+            )
+        )
+        session.commit()
+
+    return f"sqlite+aiosqlite:///{db_path}"
+
+
+def _make_flaky_db(tmp_path: Path) -> str:
+    """Create DB with a flaky test (multiple runs with varying outcomes)."""
+    db_path = tmp_path / "flaky.sqlite"
+    engine = create_engine(f"sqlite:///{db_path}")
+    SQLModel.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+
+    # Create 5 runs for test_flaky: 3 passed, 2 failed = 40% failure rate
+    statuses = ["passed", "failed", "passed", "failed", "passed"]
+    for idx, status in enumerate(statuses):
+        run_id = f"rf{idx}"
+        with Session(engine) as session:
+            run = TestRun(
+                id=run_id,
+                created_at=now - timedelta(hours=idx),
+                project="proj",
+                suite="suite",
+                status="PASS" if status == "passed" else "FAIL",
+                head_sha=f"sha{idx}",
+                code_hash="hash",
+                branch="main",
+                parent_sha="",
+                origin_url="",
+                describe="",
+                commit_timestamp=now.isoformat(),
+                is_dirty=False,
+                gpu="cpu",
+                marks="smoke",
+                pytest_args="",
+                platform="linux",
+                python_version="3.12",
+                host="localhost",
+                tests=1,
+                failures=0 if status == "passed" else 1,
+                errors=0,
+                skipped=0,
+                passed=1 if status == "passed" else 0,
+                time_sec=0.1 + idx * 0.05,
+                env={},
+                junit={},
+                ci={},
+                report_dir="",
+                run_key=f"{run_id}-key",
+            )
+            session.add(run)
+            session.add(
+                TestCase(
+                    run_id=run_id,
+                    nodeid="pkg/test_flaky.py::test_flaky",
+                    classname="pkg/test_flaky.py",
+                    name="test_flaky",
+                    status=status,
+                    time_sec=0.1 + idx * 0.05,
+                    message="" if status == "passed" else "flaky failure",
+                    detail="",
+                    stdout_text="",
+                    stderr_text="",
+                )
+            )
+            session.commit()
+
+    # Add a stable test with 3 runs, all passed = 0% failure rate
+    for idx in range(3):
+        run_id = f"rs{idx}"
+        with Session(engine) as session:
+            run = TestRun(
+                id=run_id,
+                created_at=now - timedelta(hours=idx + 10),
+                project="proj",
+                suite="suite",
+                status="PASS",
+                head_sha=f"stable_sha{idx}",
+                code_hash="hash",
+                branch="main",
+                parent_sha="",
+                origin_url="",
+                describe="",
+                commit_timestamp=now.isoformat(),
+                is_dirty=False,
+                gpu="cpu",
+                marks="smoke",
+                pytest_args="",
+                platform="linux",
+                python_version="3.12",
+                host="localhost",
+                tests=1,
+                failures=0,
+                errors=0,
+                skipped=0,
+                passed=1,
+                time_sec=0.05,
+                env={},
+                junit={},
+                ci={},
+                report_dir="",
+                run_key=f"{run_id}-key",
+            )
+            session.add(run)
+            session.add(
+                TestCase(
+                    run_id=run_id,
+                    nodeid="pkg/test_stable.py::test_stable",
+                    classname="pkg/test_stable.py",
+                    name="test_stable",
+                    status="passed",
+                    time_sec=0.05,
+                    message="",
+                    detail="",
+                    stdout_text="",
+                    stderr_text="",
+                )
+            )
+            session.commit()
+
+    return f"sqlite+aiosqlite:///{db_path}"
+
+
+def test_query_slowest_basic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test that slowest query returns tests ordered by duration."""
+    db_url = _make_duration_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "slowest",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "slowest"
+    items = payload["items"]
+    assert len(items) == 3
+
+    # Should be sorted by time_sec descending (slowest first)
+    times = [item["time_sec"] for item in items]
+    assert times == sorted(times, reverse=True)
+    assert items[0]["nodeid"] == "pkg/test_perf.py::test_slow"
+    assert items[0]["time_sec"] == pytest.approx(2.5)
+
+
+def test_query_slowest_with_status_filter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test filtering slowest query by status."""
+    db_url = _make_duration_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "slowest",
+        "--database-url",
+        db_url,
+        "--status",
+        "failed",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    items = payload["items"]
+    # Only the failed test should be returned
+    assert len(items) == 1
+    assert items[0]["status"] == "failed"
+    assert items[0]["nodeid"] == "pkg/test_perf.py::test_slow"
+
+
+def test_query_slowest_with_limit(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test limiting slowest query results."""
+    db_url = _make_duration_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "slowest",
+        "--database-url",
+        db_url,
+        "--limit",
+        "2",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    items = payload["items"]
+    assert len(items) == 2
+    # Should still be sorted by time
+    assert items[0]["time_sec"] > items[1]["time_sec"]
+
+
+def test_query_stats_failure_rate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test that stats query calculates failure rates correctly."""
+    db_url = _make_flaky_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "stats",
+        "--database-url",
+        db_url,
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["kind"] == "stats"
+    items = payload["items"]
+    assert len(items) == 2
+
+    # Default sort is by failure rate descending
+    flaky_test = next(i for i in items if "test_flaky" in i["nodeid"])
+    stable_test = next(i for i in items if "test_stable" in i["nodeid"])
+
+    assert flaky_test["total_runs"] == 5
+    assert flaky_test["failures"] == 2
+    assert flaky_test["passes"] == 3
+    assert flaky_test["failure_rate"] == pytest.approx(40.0)
+
+    assert stable_test["total_runs"] == 3
+    assert stable_test["failures"] == 0
+    assert stable_test["passes"] == 3
+    assert stable_test["failure_rate"] == pytest.approx(0.0)
+
+    # Flaky should come first (higher failure rate)
+    assert items[0]["nodeid"] == flaky_test["nodeid"]
+
+
+def test_query_stats_min_runs_filter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test filtering stats by minimum run count."""
+    db_url = _make_flaky_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "stats",
+        "--database-url",
+        db_url,
+        "--min-runs",
+        "4",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    items = payload["items"]
+    # Only test_flaky has >= 4 runs
+    assert len(items) == 1
+    assert items[0]["nodeid"] == "pkg/test_flaky.py::test_flaky"
+
+
+def test_query_stats_sort_by_avg_time(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test sorting stats by average time."""
+    db_url = _make_flaky_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "stats",
+        "--database-url",
+        db_url,
+        "--sort-by",
+        "avg-time",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    items = payload["items"]
+    # Should be sorted by avg_time_sec descending
+    avg_times = [item["avg_time_sec"] for item in items]
+    assert avg_times == sorted(avg_times, reverse=True)
+
+
+def test_query_stats_with_time_range(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Test stats query with time range filter."""
+    db_url = _make_flaky_db(tmp_path)
+    capsys.readouterr()
+    exit_code = cli_main([
+        "query",
+        "stats",
+        "--database-url",
+        db_url,
+        "--since",
+        "6h",
+        "--format",
+        "json",
+    ])
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    items = payload["items"]
+    # Only test_flaky runs are within last 6 hours (indices 0-4)
+    # test_stable runs are 10+ hours ago
+    assert len(items) == 1
+    assert items[0]["nodeid"] == "pkg/test_flaky.py::test_flaky"

@@ -72,6 +72,7 @@ def _parse_common_args(args: argparse.Namespace) -> QueryParams:
     pytest_tests, pytest_keyword, pytest_mark = _parse_pytest_select(getattr(args, "pytest_select", None))
     selectors = list(getattr(args, "tests", None) or [])
     selectors.extend(pytest_tests)
+    statuses = getattr(args, "status", None) or []
     return QueryParams(
         project_like=args.project_like,
         suite=args.suite,
@@ -84,6 +85,7 @@ def _parse_common_args(args: argparse.Namespace) -> QueryParams:
         selectors=selectors,
         since=since,
         until=until,
+        statuses=statuses,
     )
 
 
@@ -293,6 +295,95 @@ def _render_timeline(payload: dict[str, Any], args: argparse.Namespace, console:
     console.print(table)
 
 
+def _render_slowest_table(items: list[dict[str, Any]], console: Console) -> None:
+    """Render tests sorted by execution time."""
+    if not items:
+        console.print("No results.")
+        return
+
+    has_branch = any(item.get("branch") for item in items)
+    table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    table.add_column("Test", overflow="fold")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Time", no_wrap=True, justify="right")
+    table.add_column("Commit", no_wrap=True, style="cyan")
+    if has_branch:
+        table.add_column("Branch", no_wrap=True)
+    table.add_column("When", no_wrap=True)
+    table.add_column("Run", no_wrap=True)
+
+    for item in items:
+        status_cell = _status_text(item.get("status"))
+        time_cell = _format_seconds(item.get("time_sec"))
+        commit_cell = _shorten_sha(item.get("head_sha"))
+        row: list[Any] = [
+            item.get("nodeid", ""),
+            status_cell,
+            time_cell,
+            commit_cell,
+        ]
+        if has_branch:
+            row.append(item.get("branch") or "")
+        row.append(str(item.get("created_at") or ""))
+        row.append(str(item.get("run_id") or ""))
+        table.add_row(*row)
+
+    console.print(table)
+
+
+def _format_rate(value: Any) -> str:
+    """Format a percentage value."""
+    try:
+        num = float(value)
+    except Exception:
+        return ""
+    return f"{num:.1f}%"
+
+
+def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
+    """Render test statistics with failure rates and timing."""
+    if not items:
+        console.print("No results.")
+        return
+
+    table = Table(box=box.SIMPLE_HEAVY, expand=True)
+    table.add_column("Test", overflow="fold")
+    table.add_column("Runs", no_wrap=True, justify="right")
+    table.add_column("Pass", no_wrap=True, justify="right", style="green")
+    table.add_column("Fail", no_wrap=True, justify="right", style="red")
+    table.add_column("Skip", no_wrap=True, justify="right", style="yellow")
+    table.add_column("Fail%", no_wrap=True, justify="right")
+    table.add_column("Avg", no_wrap=True, justify="right")
+    table.add_column("Max", no_wrap=True, justify="right")
+
+    for item in items:
+        failure_rate = item.get("failure_rate", 0)
+        # Color failure rate based on severity
+        if failure_rate >= 50:
+            rate_style = "bold red"
+        elif failure_rate >= 20:
+            rate_style = "red"
+        elif failure_rate >= 5:
+            rate_style = "yellow"
+        else:
+            rate_style = "green"
+
+        rate_text = Text(_format_rate(failure_rate), style=rate_style)
+
+        table.add_row(
+            item.get("nodeid", ""),
+            str(item.get("total_runs", 0)),
+            str(item.get("passes", 0)),
+            str(item.get("failures", 0)),
+            str(item.get("skips", 0)),
+            rate_text,
+            _format_seconds(item.get("avg_time_sec")),
+            _format_seconds(item.get("max_time_sec")),
+        )
+
+    console.print(table)
+
+
 def _render_text(payload: dict[str, Any], args: argparse.Namespace, console: Console) -> None:
     kind = payload.get("kind", "")
     items: list[dict[str, Any]] = payload.get("items", [])
@@ -302,6 +393,10 @@ def _render_text(payload: dict[str, Any], args: argparse.Namespace, console: Con
         _render_compare(items, console)
     elif kind == "timeline":
         _render_timeline(payload, args, console)
+    elif kind == "slowest":
+        _render_slowest_table(items, console)
+    elif kind == "stats":
+        _render_stats_table(items, console)
     else:
         console.print(json.dumps(payload, indent=2))
 
@@ -342,7 +437,7 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     db_parent.add_argument("--database-url", help="Override database URL.")
 
     base = argparse.ArgumentParser(add_help=False)
-    base.add_argument("--project-like", default="%", help="SQL LIKE filter for project column (default: %).")
+    base.add_argument("--project-like", default="%", help="SQL LIKE filter for project column (default: %%).")
     base.add_argument("--suite", help="Optional suite/label filter (deprecated, use --labels).")
     base.add_argument("--label", "--labels", dest="labels", help="Comma-separated label filter.")
     base.add_argument("--branch", action="append", help="Restrict to one or more branches (can repeat).")
@@ -423,6 +518,36 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     timeline.add_argument("--max-tests", type=int, default=30, help="Limit number of test rows displayed.")
     timeline.add_argument("--compact", action="store_true", help="Compact output (no padding).")
 
+    slowest = sub.add_parser(
+        "slowest",
+        help="Show tests ordered by execution time (slowest first).",
+        parents=[base, output, db_parent],
+    )
+    slowest.add_argument(
+        "--status",
+        action="append",
+        choices=["passed", "failed", "error", "skipped"],
+        help="Filter by test status (can repeat for multiple statuses).",
+    )
+
+    stats = sub.add_parser(
+        "stats",
+        help="Show test statistics including failure rates and timing.",
+        parents=[base, output, db_parent],
+    )
+    stats.add_argument(
+        "--sort-by",
+        choices=["failure-rate", "total-runs", "avg-time", "max-time"],
+        default="failure-rate",
+        help="Sort results by this metric (default: %(default)s).",
+    )
+    stats.add_argument(
+        "--min-runs",
+        type=int,
+        default=1,
+        help="Only show tests with at least this many runs (default: %(default)s).",
+    )
+
     return parser
 
 
@@ -463,6 +588,15 @@ def run(args: argparse.Namespace) -> int:
             payload = {"kind": "compare", "items": items}
         elif args.query_command == "timeline":
             payload = backend.timeline(params, runs=args.runs, max_tests=args.max_tests)
+        elif args.query_command == "slowest":
+            payload = {"kind": "slowest", "items": backend.slowest(params)}
+        elif args.query_command == "stats":
+            sort_by = getattr(args, "sort_by", "failure-rate")
+            items = backend.stats(params, sort_by=sort_by)
+            min_runs = getattr(args, "min_runs", 1)
+            if min_runs > 1:
+                items = [i for i in items if i.get("total_runs", 0) >= min_runs]
+            payload = {"kind": "stats", "items": items}
         else:
             print(f"Unknown query command: {args.query_command}", file=sys.stderr)
             return 2

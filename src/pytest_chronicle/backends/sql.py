@@ -159,7 +159,7 @@ def _in_clause(column: str, prefix: str, values: list[str]) -> tuple[str, dict[s
     return f"{column} IN ({', '.join(placeholders)})", params
 
 
-def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
+def _build_where(common: QueryParams, *, include_status: bool = False) -> tuple[str, dict[str, Any]]:
     clauses = ["tr.project LIKE :project_like"]
     params: dict[str, Any] = {"project_like": common.project_like}
     if common.suite:
@@ -182,6 +182,10 @@ def _build_where(common: QueryParams) -> tuple[str, dict[str, Any]]:
     if common.until:
         clauses.append("tr.created_at <= :until_ts")
         params["until_ts"] = common.until
+    if include_status and common.statuses:
+        clause, extras = _in_clause("tc.status", "status", common.statuses)
+        clauses.append(clause)
+        params.update(extras)
     return " AND ".join(clauses), params
 
 
@@ -497,3 +501,116 @@ class SqlQueryBackend(QueryBackend):
             filtered_items = filtered_items[: max_tests]
 
         return {"kind": "timeline", "runs": runs_meta, "items": filtered_items}
+
+    def slowest(self, common: QueryParams) -> list[dict[str, Any]]:
+        """Return tests ordered by execution time (slowest first), one per nodeid."""
+        where_sql, params = _build_where(common, include_status=True)
+        sql = f"""
+        WITH filtered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tc.time_sec,
+                tc.message,
+                tc.detail,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
+            FROM filtered
+        )
+        SELECT * FROM ranked WHERE rn = 1 ORDER BY time_sec DESC;
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+
+        # Apply filtering but preserve time-based ordering
+        selectors = [_normalize_selector(sel) for sel in common.selectors if sel]
+        filtered: list[dict[str, Any]] = []
+        for row in rows:
+            nodeid = row.get("nodeid", "")
+            if selectors and not _matches_selector_list(selectors, nodeid):
+                continue
+            if not _matches_keyword(common.keyword, [nodeid, row.get("classname", ""), row.get("name", "")]):
+                continue
+            if common.marks and not _matches_keyword(common.marks, [row.get("marks", "")]):
+                continue
+            filtered.append(dict(row))
+
+        # Do NOT re-sort - preserve time_sec DESC ordering from SQL
+        if common.limit:
+            filtered = filtered[: common.limit]
+        return filtered
+
+    def stats(self, common: QueryParams, sort_by: str = "failure-rate") -> list[dict[str, Any]]:
+        """Return aggregated statistics per test including failure rates and timing."""
+        where_sql, params = _build_where(common, include_status=True)
+
+        # Determine sort order based on sort_by parameter
+        sort_map = {
+            "failure-rate": "failure_rate DESC, total_runs DESC",
+            "total-runs": "total_runs DESC, failure_rate DESC",
+            "avg-time": "avg_time_sec DESC, total_runs DESC",
+            "max-time": "max_time_sec DESC, total_runs DESC",
+        }
+        order_by = sort_map.get(sort_by, "failure_rate DESC, total_runs DESC")
+
+        sql = f"""
+        WITH filtered AS (
+            SELECT
+                tc.nodeid,
+                tc.classname,
+                tc.name,
+                tc.status,
+                tc.time_sec,
+                tr.head_sha,
+                tr.branch,
+                tr.created_at,
+                tr.id AS run_id,
+                tr.marks
+            FROM test_cases tc
+            JOIN test_runs tr ON tr.id = tc.run_id
+            WHERE {where_sql}
+        )
+        SELECT
+            nodeid,
+            classname,
+            name,
+            COUNT(*) AS total_runs,
+            SUM(CASE WHEN status IN ('failed', 'error') THEN 1 ELSE 0 END) AS failures,
+            SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS passes,
+            SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skips,
+            ROUND(100.0 * SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS failure_rate,
+            AVG(time_sec) AS avg_time_sec,
+            MAX(time_sec) AS max_time_sec,
+            MIN(time_sec) AS min_time_sec
+        FROM filtered
+        GROUP BY nodeid, classname, name
+        ORDER BY {order_by};
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+
+        # Apply selector and keyword filtering
+        selectors = [_normalize_selector(sel) for sel in common.selectors if sel]
+        filtered: list[dict[str, Any]] = []
+        for row in rows:
+            nodeid = row.get("nodeid", "")
+            if selectors and not _matches_selector_list(selectors, nodeid):
+                continue
+            if not _matches_keyword(common.keyword, [nodeid, row.get("classname", ""), row.get("name", "")]):
+                continue
+            filtered.append(dict(row))
+
+        if common.limit:
+            filtered = filtered[: common.limit]
+        return filtered
