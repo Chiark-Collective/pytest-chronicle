@@ -253,6 +253,23 @@ SLOW_THRESHOLD = 1.0  # Tests >= 1s are "slow" (yellow)
 VERY_SLOW_THRESHOLD = 5.0  # Tests >= 5s are "very slow" (bold orange/red)
 
 
+def _format_timestamp(value: Any, *, compact: bool = False) -> str:
+    """Format a timestamp, truncating microseconds for display.
+
+    Args:
+        value: Timestamp value to format
+        compact: If True, split date and time with newline for narrower display
+    """
+    if not value:
+        return ""
+    # Truncate to YYYY-MM-DD HH:MM:SS (19 chars)
+    ts = str(value)[:19]
+    if compact and len(ts) >= 11:
+        # Split into "YYYY-MM-DD\nHH:MM:SS" (10 chars wide instead of 19)
+        return ts[:10] + "\n" + ts[11:]
+    return ts
+
+
 def _format_time_styled(value: Any) -> Text:
     """Format seconds as a Rich Text object with smart units and slow test highlighting."""
     try:
@@ -281,46 +298,62 @@ def _render_status_table(kind: str, items: list[dict[str, Any]], args: argparse.
     has_branch = any(item.get("branch") for item in items)
     show_marks = getattr(args, "show_marks", False)
     has_marks = show_marks and any(item.get("marks") for item in items)
+    is_errors = kind == "errors"
 
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
-    table.add_column("Test", overflow="fold")
-    table.add_column("Status", no_wrap=True)
-    table.add_column("Commit", no_wrap=True, style="cyan")
-    table.add_column("Time", no_wrap=True, justify="right")
-    if has_branch:
-        table.add_column("Branch", no_wrap=True)
-    if has_marks:
-        table.add_column("Marks", no_wrap=True, style="dim")
-    table.add_column("When", no_wrap=True)
-    table.add_column("Run", no_wrap=True)
-    if kind == "errors":
+
+    # Get display flags
+    show_commit = not getattr(args, "no_commit", False)
+    show_run = not getattr(args, "no_run", False)
+
+    if is_errors:
+        # Minimal columns for errors: Test, When, Message
+        # Skip Status (always failed), Commit, Time, Branch, Run to save space
+        # Use -v for full details
+        table.add_column("Test", overflow="ellipsis", no_wrap=True, min_width=20, max_width=50)
+        table.add_column("When", no_wrap=False, max_width=11)
         table.add_column("Message", overflow="fold")
-    elif kind == "flipped-green":
-        table.add_column("From", no_wrap=True, style="dim")
+    else:
+        # Use ellipsis with min_width to prevent Test from being squished at narrow widths
+        table.add_column("Test", overflow="ellipsis", no_wrap=True, min_width=20, max_width=60)
+        table.add_column("Status", no_wrap=True)
+        if show_commit:
+            table.add_column("Commit", no_wrap=True, style="cyan")
+        table.add_column("Time", no_wrap=True, justify="right")
+        if has_branch:
+            table.add_column("Branch", no_wrap=True)
+        if has_marks:
+            table.add_column("Marks", no_wrap=True, style="dim")
+        table.add_column("When", no_wrap=True)
+        if show_run:
+            table.add_column("Run", no_wrap=True)
+        if kind == "flipped-green":
+            table.add_column("From", no_wrap=True, style="dim")
 
     for item in items:
-        status_cell = _status_text(item.get("status"))
-        commit_cell = _shorten_sha(item.get("head_sha"))
-        time_cell = _format_time_styled(item.get("time_sec"))
-        row: list[Any] = [
-            _shorten_nodeid(item.get("nodeid", "")),
-            status_cell,
-            commit_cell,
-            time_cell,
-        ]
-        if has_branch:
-            row.append(item.get("branch") or "")
-        if has_marks:
-            row.append(item.get("marks") or "")
-        row.append(str(item.get("created_at") or ""))
-        row.append(_shorten_uuid(item.get("run_id")))
+        row: list[Any] = [_shorten_nodeid(item.get("nodeid", ""))]
 
-        if kind == "errors":
+        if is_errors:
+            row.append(_format_timestamp(item.get("created_at"), compact=True))
             msg = item.get("message") or item.get("detail") or ""
             preview = msg.splitlines()[0] if msg else ""
             row.append(preview)
-        elif kind == "flipped-green":
-            row.append(_shorten_sha(item.get("prev_head_sha")))
+        else:
+            status_cell = _status_text(item.get("status"))
+            time_cell = _format_time_styled(item.get("time_sec"))
+            row.append(status_cell)
+            if show_commit:
+                row.append(_shorten_sha(item.get("head_sha")))
+            row.append(time_cell)
+            if has_branch:
+                row.append(item.get("branch") or "")
+            if has_marks:
+                row.append(item.get("marks") or "")
+            row.append(_format_timestamp(item.get("created_at")))
+            if show_run:
+                row.append(_shorten_uuid(item.get("run_id")))
+            if kind == "flipped-green":
+                row.append(_shorten_sha(item.get("prev_head_sha")))
 
         table.add_row(*row)
 
@@ -421,35 +454,36 @@ def _render_slowest_table(items: list[dict[str, Any]], args: argparse.Namespace,
     has_branch = any(item.get("branch") for item in items)
     show_marks = getattr(args, "show_marks", False)
     has_marks = show_marks and any(item.get("marks") for item in items)
+    show_commit = not getattr(args, "no_commit", False)
 
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
-    table.add_column("Test", overflow="fold")
+    # Use ellipsis with min/max width for Test to prevent squishing
+    table.add_column("Test", overflow="ellipsis", no_wrap=True, min_width=20, max_width=50)
     table.add_column("Status", no_wrap=True)
     table.add_column("Time", no_wrap=True, justify="right")
-    table.add_column("Commit", no_wrap=True, style="cyan")
+    if show_commit:
+        table.add_column("Commit", no_wrap=True, style="cyan")
     if has_branch:
         table.add_column("Branch", no_wrap=True)
     if has_marks:
         table.add_column("Marks", no_wrap=True, style="dim")
     table.add_column("When", no_wrap=True)
-    table.add_column("Run", no_wrap=True)
 
     for item in items:
         status_cell = _status_text(item.get("status"))
         time_cell = _format_time_styled(item.get("time_sec"))
-        commit_cell = _shorten_sha(item.get("head_sha"))
         row: list[Any] = [
             _shorten_nodeid(item.get("nodeid", "")),
             status_cell,
             time_cell,
-            commit_cell,
         ]
+        if show_commit:
+            row.append(_shorten_sha(item.get("head_sha")))
         if has_branch:
             row.append(item.get("branch") or "")
         if has_marks:
             row.append(item.get("marks") or "")
-        row.append(str(item.get("created_at") or ""))
-        row.append(_shorten_uuid(item.get("run_id")))
+        row.append(_format_timestamp(item.get("created_at")))
         table.add_row(*row)
 
     console.print(table)
@@ -471,7 +505,7 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
         return
 
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
-    table.add_column("Test", overflow="fold")
+    table.add_column("Test", overflow="fold", ratio=2)
     table.add_column("Runs", no_wrap=True, justify="right")
     table.add_column("Pass", no_wrap=True, justify="right", style="green")
     table.add_column("Fail", no_wrap=True, justify="right", style="red")
@@ -690,6 +724,8 @@ def configure_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     output.add_argument("--output", help="Optional path to write results instead of stdout.")
     output.add_argument("--no-color", action="store_true", help="Disable ANSI color and styling in output.")
     output.add_argument("--show-marks", action="store_true", help="Show test marks/labels in output.")
+    output.add_argument("--no-run", action="store_true", help="Hide the Run ID column in output.")
+    output.add_argument("--no-commit", action="store_true", help="Hide the Commit column in output.")
 
     parser = subparsers.add_parser("query", help="Run rich test result queries.")
     sub = parser.add_subparsers(dest="query_command", required=True)

@@ -1,8 +1,12 @@
 # pytest-chronicle
 
-Searchable git-aware pytest history with a lean CLI and easy storage backends. 
+Searchable git-aware pytest history with a lean CLI and easy storage backends.
 
 Pin down regressions. Squash bugs. Join the Federation today.
+
+<p align="center">
+  <img src="demo/quick_demo.gif" alt="pytest-chronicle demo" width="720">
+</p>
 
 ## What it does
 
