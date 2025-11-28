@@ -312,7 +312,7 @@ class TestRenderStatusTable:
         ]
         args = argparse.Namespace(no_color=True, show_marks=True)
         buffer = io.StringIO()
-        console = Console(file=buffer, no_color=True)
+        console = Console(file=buffer, no_color=True, width=200)
 
         _render_status_table("last-green", items, args, console)
         output = buffer.getvalue()

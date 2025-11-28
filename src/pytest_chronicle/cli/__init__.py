@@ -22,7 +22,22 @@ from . import (
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pytest-chronicle",
-        description="pytest-chronicle command line interface.",
+        description="pytest-chronicle: Track your pytest test history across runs.",
+        epilog="""Quick start:
+  pytest-chronicle init          # Initialize in current directory
+  pytest                         # Run tests (auto-ingests results)
+  pytest-chronicle query stats   # View test statistics
+
+Common queries:
+  query last-red    - Recent failures
+  query errors      - Error details with tracebacks
+  query timeline    - Visual test history
+  query slowest     - Performance analysis
+  query stats       - Failure rates and timing
+
+GitHub: https://github.com/Chiark-Collective/pytest-chronicle
+Docs:   https://pypi.org/project/pytest-chronicle/""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
