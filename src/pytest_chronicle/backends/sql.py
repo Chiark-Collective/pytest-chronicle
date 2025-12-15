@@ -348,7 +348,7 @@ class SqlQueryBackend(QueryBackend):
         flips AS (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY nodeid ORDER BY created_at DESC) AS rn
             FROM ordered
-            WHERE status = 'passed' AND prev_status IN ('failed','error')
+            WHERE status IN ('passed', 'xpassed') AND prev_status IN ('failed', 'error', 'xfailed')
         )
         SELECT * FROM flips WHERE rn = 1 ORDER BY created_at DESC;
         """
@@ -590,6 +590,8 @@ class SqlQueryBackend(QueryBackend):
             SUM(CASE WHEN status IN ('failed', 'error') THEN 1 ELSE 0 END) AS failures,
             SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS passes,
             SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skips,
+            SUM(CASE WHEN status = 'xfailed' THEN 1 ELSE 0 END) AS xfails,
+            SUM(CASE WHEN status = 'xpassed' THEN 1 ELSE 0 END) AS xpasses,
             ROUND(100.0 * SUM(CASE WHEN status IN ('failed','error') THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS failure_rate,
             AVG(time_sec) AS avg_time_sec,
             MAX(time_sec) AS max_time_sec,

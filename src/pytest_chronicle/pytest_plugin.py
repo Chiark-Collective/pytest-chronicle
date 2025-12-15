@@ -146,6 +146,23 @@ def _cap(value: str, n: int = 20000) -> str:
     return value if len(value) <= n else (value[:n] + "\n... [truncated]")
 
 
+def _resolve_outcome(report) -> str:
+    """Resolve the test outcome, detecting xfail/xpass cases.
+
+    Pytest marks xfail tests with a 'wasxfail' attribute on the report:
+    - xfail (expected failure that failed): outcome='skipped', wasxfail=reason
+    - xpass (expected failure that passed): outcome='passed', wasxfail=reason
+    - strict xpass becomes outcome='failed' (no special handling needed)
+    """
+    outcome = report.outcome
+    if hasattr(report, "wasxfail"):
+        if outcome == "skipped":
+            return "xfailed"
+        elif outcome == "passed":
+            return "xpassed"
+    return outcome
+
+
 def pytest_runtest_logreport(report) -> None:
     config = _CONFIG
     if config is None:
@@ -153,13 +170,15 @@ def pytest_runtest_logreport(report) -> None:
     rec = _ensure(config, report.nodeid)
 
     phase = report.when  # setup | call | teardown
+    phase_outcome = _resolve_outcome(report)
     rec["phases"][phase] = {
-        "outcome": report.outcome,
+        "outcome": phase_outcome,
         "duration": getattr(report, "duration", 0.0) or 0.0,
         "stdout": _cap(_text(getattr(report, "capstdout", ""))),
         "stderr": _cap(_text(getattr(report, "capstderr", ""))),
         "longrepr": _cap(_text(getattr(report, "longreprtext", ""))),
         "sections": getattr(report, "sections", []) or [],
+        "wasxfail": getattr(report, "wasxfail", None),
     }
 
     rec["duration"] += getattr(report, "duration", 0.0) or 0.0
@@ -171,10 +190,19 @@ def pytest_runtest_logreport(report) -> None:
     if phase == "teardown":
         rec["end"] = datetime.now(timezone.utc).isoformat()
 
-    if report.outcome == "failed":
+    # Determine overall test outcome with xfail/xpass awareness
+    if phase_outcome == "failed":
         rec["outcome"] = "failed"
+    elif phase_outcome == "xfailed":
+        # xfailed takes precedence over passed but not over failed
+        if rec["outcome"] not in ("failed",):
+            rec["outcome"] = "xfailed"
+    elif phase_outcome == "xpassed":
+        # xpassed takes precedence over passed but not over failed/xfailed
+        if rec["outcome"] not in ("failed", "xfailed"):
+            rec["outcome"] = "xpassed"
     elif rec["outcome"] is None or rec["outcome"] == "passed":
-        rec["outcome"] = "skipped" if report.outcome == "skipped" else (rec["outcome"] or report.outcome)
+        rec["outcome"] = "skipped" if phase_outcome == "skipped" else (rec["outcome"] or phase_outcome)
 
 
 def pytest_report_teststatus(report, config) -> None:

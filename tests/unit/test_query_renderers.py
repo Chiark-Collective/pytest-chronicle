@@ -216,6 +216,16 @@ class TestStatusText:
         result = _status_text("skipped")
         assert "yellow" in str(result.style)
 
+    def test_xfailed_dim(self) -> None:
+        """Test xfailed status is dim (expected failure that failed)."""
+        result = _status_text("xfailed")
+        assert "dim" in str(result.style)
+
+    def test_xpassed_cyan(self) -> None:
+        """Test xpassed status is cyan (expected failure that passed)."""
+        result = _status_text("xpassed")
+        assert "cyan" in str(result.style)
+
     def test_glyph_mode(self) -> None:
         """Test glyph mode returns single character."""
         result = _status_text("passed", glyph=True)
@@ -223,6 +233,26 @@ class TestStatusText:
 
         result = _status_text("failed", glyph=True)
         assert result.plain == "F"
+
+    def test_glyph_mode_xfailed(self) -> None:
+        """Test xfailed glyph is lowercase x."""
+        result = _status_text("xfailed", glyph=True)
+        assert result.plain == "x"
+
+    def test_glyph_mode_xpassed(self) -> None:
+        """Test xpassed glyph is exclamation mark."""
+        result = _status_text("xpassed", glyph=True)
+        assert result.plain == "!"
+
+    def test_xfailed_full_text(self) -> None:
+        """Test xfailed displays full text when not in glyph mode."""
+        result = _status_text("xfailed", glyph=False)
+        assert result.plain == "xfailed"
+
+    def test_xpassed_full_text(self) -> None:
+        """Test xpassed displays full text when not in glyph mode."""
+        result = _status_text("xpassed", glyph=False)
+        assert result.plain == "xpassed"
 
 
 class TestFormatSeconds:
@@ -395,6 +425,56 @@ class TestRenderTimeline:
         output = buffer.getvalue()
         assert "No runs" in output
 
+    def test_renders_xfailed_glyph(self) -> None:
+        """Test timeline renders xfailed as lowercase x."""
+        payload = {
+            "runs": [{"head_sha": "sha1", "branch": "main", "created_at": "2024-01-15"}],
+            "items": [{"nodeid": "test::xfail", "statuses": ["xfailed"], "times": [0.1]}],
+        }
+        args = argparse.Namespace(no_color=True, compact=False, show_times=False)
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True)
+
+        _render_timeline(payload, args, console)
+        output = buffer.getvalue()
+        # The glyph 'x' should appear for xfailed
+        assert "x" in output
+
+    def test_renders_xpassed_glyph(self) -> None:
+        """Test timeline renders xpassed as exclamation mark."""
+        payload = {
+            "runs": [{"head_sha": "sha1", "branch": "main", "created_at": "2024-01-15"}],
+            "items": [{"nodeid": "test::xpass", "statuses": ["xpassed"], "times": [0.1]}],
+        }
+        args = argparse.Namespace(no_color=True, compact=False, show_times=False)
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True)
+
+        _render_timeline(payload, args, console)
+        output = buffer.getvalue()
+        # The glyph '!' should appear for xpassed
+        assert "!" in output
+
+    def test_renders_mixed_xfail_xpass_timeline(self) -> None:
+        """Test timeline with mixed xfailed and xpassed statuses."""
+        payload = {
+            "runs": [
+                {"head_sha": "sha1", "branch": "main", "created_at": "2024-01-15"},
+                {"head_sha": "sha2", "branch": "main", "created_at": "2024-01-14"},
+            ],
+            "items": [
+                {"nodeid": "test::flaky_xfail", "statuses": ["xfailed", "xpassed"], "times": [0.1, 0.2]},
+            ],
+        }
+        args = argparse.Namespace(no_color=True, compact=False, show_times=False)
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True)
+
+        _render_timeline(payload, args, console)
+        output = buffer.getvalue()
+        assert "x" in output  # xfailed
+        assert "!" in output  # xpassed
+
 
 class TestRenderSlowestTable:
     def test_renders_slowest(self) -> None:
@@ -461,6 +541,102 @@ class TestRenderStatsTable:
         _render_stats_table([], console)
         output = buffer.getvalue()
         assert "No results" in output
+
+    def test_renders_xfail_column_when_present(self) -> None:
+        """Test xF column appears when xfails exist."""
+        items = [
+            {
+                "nodeid": "test::expected_fail",
+                "total_runs": 5,
+                "passes": 2,
+                "failures": 0,
+                "skips": 0,
+                "xfails": 3,
+                "xpasses": 0,
+                "failure_rate": 0.0,
+                "avg_time_sec": 0.1,
+                "max_time_sec": 0.2,
+            }
+        ]
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True, width=200)
+
+        _render_stats_table(items, console)
+        output = buffer.getvalue()
+        assert "xF" in output
+        assert "3" in output  # xfails count
+
+    def test_renders_xpass_column_when_present(self) -> None:
+        """Test xP column appears when xpasses exist."""
+        items = [
+            {
+                "nodeid": "test::unexpected_pass",
+                "total_runs": 5,
+                "passes": 0,
+                "failures": 0,
+                "skips": 0,
+                "xfails": 0,
+                "xpasses": 2,
+                "failure_rate": 0.0,
+                "avg_time_sec": 0.1,
+                "max_time_sec": 0.2,
+            }
+        ]
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True, width=200)
+
+        _render_stats_table(items, console)
+        output = buffer.getvalue()
+        assert "xP" in output
+        assert "2" in output  # xpasses count
+
+    def test_hides_xfail_column_when_zero(self) -> None:
+        """Test xF column is hidden when no xfails exist."""
+        items = [
+            {
+                "nodeid": "test::normal",
+                "total_runs": 5,
+                "passes": 5,
+                "failures": 0,
+                "skips": 0,
+                "xfails": 0,
+                "xpasses": 0,
+                "failure_rate": 0.0,
+                "avg_time_sec": 0.1,
+                "max_time_sec": 0.2,
+            }
+        ]
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True, width=200)
+
+        _render_stats_table(items, console)
+        output = buffer.getvalue()
+        assert "xF" not in output
+        assert "xP" not in output
+
+    def test_renders_both_xfail_and_xpass_columns(self) -> None:
+        """Test both xF and xP columns when both exist."""
+        items = [
+            {
+                "nodeid": "test::mixed",
+                "total_runs": 10,
+                "passes": 3,
+                "failures": 1,
+                "skips": 1,
+                "xfails": 3,
+                "xpasses": 2,
+                "failure_rate": 10.0,
+                "avg_time_sec": 0.1,
+                "max_time_sec": 0.2,
+            }
+        ]
+        buffer = io.StringIO()
+        console = Console(file=buffer, no_color=True, width=200)
+
+        _render_stats_table(items, console)
+        output = buffer.getvalue()
+        assert "xF" in output
+        assert "xP" in output
 
 
 class TestRenderText:

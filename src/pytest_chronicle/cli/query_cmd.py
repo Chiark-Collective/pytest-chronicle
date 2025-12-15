@@ -211,11 +211,16 @@ def _shorten_uuid(value: str | None) -> str:
 
 
 def _status_text(status: str | None, *, glyph: bool = False) -> Text:
+    # Mapping: (glyph_char, color)
+    # xfailed: expected failure that failed as expected - dim, not concerning
+    # xpassed: expected failure that passed unexpectedly - cyan, needs attention
     mapping = {
         "passed": ("P", "green"),
         "failed": ("F", "red"),
         "error": ("E", "magenta"),
         "skipped": ("S", "yellow"),
+        "xfailed": ("x", "dim"),
+        "xpassed": ("!", "cyan"),
         "?": ("?", "bright_black"),
     }
     if not status:
@@ -504,12 +509,20 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
         console.print("No results.")
         return
 
+    # Check if any xfail/xpass data exists to decide whether to show those columns
+    has_xfail = any(item.get("xfails", 0) for item in items)
+    has_xpass = any(item.get("xpasses", 0) for item in items)
+
     table = Table(box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Test", overflow="fold", ratio=2)
     table.add_column("Runs", no_wrap=True, justify="right")
     table.add_column("Pass", no_wrap=True, justify="right", style="green")
     table.add_column("Fail", no_wrap=True, justify="right", style="red")
     table.add_column("Skip", no_wrap=True, justify="right", style="yellow")
+    if has_xfail:
+        table.add_column("xF", no_wrap=True, justify="right", style="dim")
+    if has_xpass:
+        table.add_column("xP", no_wrap=True, justify="right", style="cyan")
     table.add_column("Fail%", no_wrap=True, justify="right")
     table.add_column("Avg", no_wrap=True, justify="right")
     table.add_column("Max", no_wrap=True, justify="right")
@@ -528,16 +541,23 @@ def _render_stats_table(items: list[dict[str, Any]], console: Console) -> None:
 
         rate_text = Text(_format_rate(failure_rate), style=rate_style)
 
-        table.add_row(
+        row: list[Any] = [
             _shorten_nodeid(item.get("nodeid", "")),
             str(item.get("total_runs", 0)),
             str(item.get("passes", 0)),
             str(item.get("failures", 0)),
             str(item.get("skips", 0)),
+        ]
+        if has_xfail:
+            row.append(str(item.get("xfails", 0)))
+        if has_xpass:
+            row.append(str(item.get("xpasses", 0)))
+        row.extend([
             rate_text,
             _format_time_styled(item.get("avg_time_sec")),
             _format_time_styled(item.get("max_time_sec")),
-        )
+        ])
+        table.add_row(*row)
 
     console.print(table)
 

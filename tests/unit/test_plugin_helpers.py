@@ -8,6 +8,7 @@ import pytest
 
 from pytest_chronicle.pytest_plugin import (
     _cap,
+    _resolve_outcome,
     _text,
     _to_async_url,
 )
@@ -157,3 +158,87 @@ class TestIngestFromJsonl:
 
         # Should have written success message
         assert any("[chronicle]" in line for line in reporter.lines)
+
+
+class TestResolveOutcome:
+    """Test the _resolve_outcome helper for xfail/xpass detection."""
+
+    def test_xfail_skipped_with_wasxfail(self) -> None:
+        """Test xfail test (expected failure that failed) is detected."""
+
+        class MockReport:
+            outcome = "skipped"
+            wasxfail = "expected to fail"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "xfailed"
+
+    def test_xpass_passed_with_wasxfail(self) -> None:
+        """Test xpass test (expected failure that passed) is detected."""
+
+        class MockReport:
+            outcome = "passed"
+            wasxfail = "should have failed"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "xpassed"
+
+    def test_normal_passed(self) -> None:
+        """Test normal passing test is unchanged."""
+
+        class MockReport:
+            outcome = "passed"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "passed"
+
+    def test_normal_failed(self) -> None:
+        """Test normal failing test is unchanged."""
+
+        class MockReport:
+            outcome = "failed"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "failed"
+
+    def test_normal_skipped(self) -> None:
+        """Test normal skipped test (without wasxfail) is unchanged."""
+
+        class MockReport:
+            outcome = "skipped"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "skipped"
+
+    def test_strict_xpass_is_failed(self) -> None:
+        """Test strict xpass (outcome=failed with wasxfail) returns failed.
+
+        When @pytest.mark.xfail(strict=True) passes, pytest sets outcome='failed',
+        so we shouldn't special-case it - it's already a proper failure.
+        """
+
+        class MockReport:
+            outcome = "failed"
+            wasxfail = "strict mode"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "failed"
+
+    def test_error_outcome(self) -> None:
+        """Test error outcome is unchanged."""
+
+        class MockReport:
+            outcome = "error"
+
+        result = _resolve_outcome(MockReport())
+        assert result == "error"
+
+    def test_wasxfail_empty_string(self) -> None:
+        """Test wasxfail as empty string still triggers xfail detection."""
+
+        class MockReport:
+            outcome = "skipped"
+            wasxfail = ""
+
+        result = _resolve_outcome(MockReport())
+        assert result == "xfailed"

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5 - 2025-12-15
+- Added first-class support for pytest xfail/xpass statuses.
+- Plugin detects `wasxfail` attribute and records `xfailed` (expected failure) and `xpassed` (unexpected pass) outcomes.
+- Timeline shows `x` (dim) for xfailed and `!` (cyan) for xpassed.
+- Stats table conditionally shows `xF` and `xP` columns when xfail/xpass data exists.
+- `flipped_green` query now includes xfailed→passed/xpassed transitions.
+- Comprehensive test coverage for xfail/xpass detection, rendering, and queries.
+
 ## 0.3.0 - 2025-11-24
 - Added rich text output for `pytest-chronicle query` (colored tables, timelines; `--no-color` and JSON remain).
 - Added pytest-style selectors (positionals and `--pytest-select`) so last-red/last-green/errors/compare respect multiple matched nodeids; selectors normalize backslashes and allow substring matching.
