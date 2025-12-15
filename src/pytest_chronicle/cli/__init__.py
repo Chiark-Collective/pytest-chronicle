@@ -13,7 +13,6 @@ from . import (
     import_sqlite_cmd,
     ingest_cmd,
     init_cmd,
-    latest_red_cmd,
     query_cmd,
     run_cmd,
 )
@@ -42,7 +41,6 @@ Docs:   https://pypi.org/project/pytest-chronicle/""",
     subparsers = parser.add_subparsers(dest="command", required=False)
 
     ingest_cmd.configure_parser(subparsers)
-    latest_red_cmd.configure_parser(subparsers)
     run_cmd.configure_parser(subparsers)
     backfill_cmd.configure_parser(subparsers)
     export_sqlite_cmd.configure_parser(subparsers)
@@ -63,8 +61,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "ingest":
         return ingest_cmd.run(args)
-    if args.command == "latest-red":
-        return latest_red_cmd.run(args)
     if args.command == "run":
         return run_cmd.run(args)
     if args.command == "backfill":

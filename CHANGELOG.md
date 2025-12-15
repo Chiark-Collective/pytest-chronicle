@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.6 - 2025-12-15
+- Removed legacy `latest-red` command; use `query last-red` instead.
+
 ## 0.4.5 - 2025-12-15
 - Added first-class support for pytest xfail/xpass statuses.
 - Plugin detects `wasxfail` attribute and records `xfailed` (expected failure) and `xpassed` (unexpected pass) outcomes.

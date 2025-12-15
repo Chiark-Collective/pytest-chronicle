@@ -46,8 +46,7 @@ def _write_summary(path: Path, *, status: str = "FAIL") -> Path:
     return path
 
 
-@pytest.mark.parametrize("mode", ["per-test", "latest-run"])
-def test_cli_ingest_and_latest_red(tmp_path: Path, mode: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_ingest_and_query_last_red(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     db_path = tmp_path / "db.sqlite"
     db_url = f"sqlite+aiosqlite:///{db_path}"
 
@@ -70,18 +69,17 @@ def test_cli_ingest_and_latest_red(tmp_path: Path, mode: str, capsys: pytest.Cap
 
     exit_latest = cli_main(
         [
-            "latest-red",
+            "query",
+            "last-red",
             "--database-url",
             db_url,
-            "--mode",
-            mode,
             "--project-like",
             "tools/tests%",
         ]
     )
     assert exit_latest == 0
     captured = capsys.readouterr()
-    assert "pkg/mod.py::test_failure" in captured.out
+    assert "test_failure" in captured.out
 
 
 def test_cli_backfill_export_import(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -134,16 +132,15 @@ def test_cli_backfill_export_import(tmp_path: Path, capsys: pytest.CaptureFixtur
 
     capsys.readouterr()
     exit_latest = cli_main([
-        "latest-red",
+        "query",
+        "last-red",
         "--database-url",
         import_db,
-        "--mode",
-        "per-test",
         "--project-like",
         "%",
     ])
     assert exit_latest == 0
-    assert "pkg/mod.py::test_failure" in capsys.readouterr().out
+    assert "test_failure" in capsys.readouterr().out
 
 
 def test_cli_run_invokes_pytest_and_ingests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,13 +310,12 @@ def test_cli_ingest_jsonl(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     assert run_output, "Expected run_id to be printed"
 
     exit_latest = cli_main([
-        "latest-red",
+        "query",
+        "last-red",
         "--database-url",
         db_url,
-        "--mode",
-        "per-test",
         "--project-like",
         "%",
     ])
     assert exit_latest == 0
-    assert "pkg/test_sample.py::test_green" in capsys.readouterr().out
+    assert "test_sample" in capsys.readouterr().out
